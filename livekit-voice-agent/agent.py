@@ -92,7 +92,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # TTS with fallback: Cartesia primary, Inworld backup
         tts=tts.FallbackAdapter(
             [
-                inference.TTS.from_model_string("cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"),
+                inference.TTS.from_model_string("deepgram/aura-2:luna"),
                 inference.TTS.from_model_string("inworld/inworld-tts-1"),
             ]
         ),

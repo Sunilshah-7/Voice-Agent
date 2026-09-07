@@ -21,9 +21,13 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from hospitality_agent import (
     ArtifactWriteError,
+    DEFAULT_INTERVIEW_PLAN,
     HospitalityInterviewer,
-    POST_SHIFT_GUEST_EXPERIENCE,
+    LiveKitTextGenerator,
     TranscriptRecorder,
+    SynthesisError,
+    SynthesisService,
+    interview_plan_from_job_metadata,
     respondent_context_from_job_metadata,
 )
 
@@ -38,19 +42,31 @@ vad = silero.VAD.load()
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     try:
+        interview_plan = interview_plan_from_job_metadata(ctx.job.metadata)
+    except ValueError as exc:
+        logger.warning("Using default interview plan after invalid metadata: %s", exc)
+        interview_plan = DEFAULT_INTERVIEW_PLAN
+    try:
         respondent_context = respondent_context_from_job_metadata(ctx.job.metadata)
     except ValueError as exc:
         logger.warning("Ignoring invalid respondent context metadata: %s", exc)
         respondent_context = respondent_context_from_job_metadata(None)
     recorder = TranscriptRecorder(
-        plan=POST_SHIFT_GUEST_EXPERIENCE,
+        plan=interview_plan,
         session_id=ctx.job.id or None,
         respondent_context=respondent_context,
     )
     interviewer = HospitalityInterviewer(
-        plan=POST_SHIFT_GUEST_EXPERIENCE,
+        plan=interview_plan,
         recorder=recorder,
     )
+    synthesis_model = llm.FallbackAdapter(
+        [
+            inference.LLM(model="openai/gpt-4.1-mini"),
+            inference.LLM(model="google/gemini-2.5-flash"),
+        ]
+    )
+    synthesis_service = SynthesisService(LiveKitTextGenerator(synthesis_model))
     # Configure the voice pipeline with STT, LLM, TTS, and VAD providers
     session = AgentSession(
         # LLM with fallback: OpenAI primary, Gemini backup
@@ -101,8 +117,40 @@ async def entrypoint(ctx: JobContext) -> None:
     async def persist_session() -> None:
         summary = usage_collector.get_summary()
         logger.info("Usage summary: %s", summary)
+        if recorder.latest_respondent_turn_id is None:
+            synthesis: dict[str, object] = {
+                "status": "skipped",
+                "reason": "no_finalized_respondent_turns",
+            }
+        else:
+            try:
+                result = await synthesis_service.synthesize(
+                    turns=recorder.turns,
+                    state=interviewer.interview_state,
+                )
+            except SynthesisError as exc:
+                logger.warning("Session synthesis failed: %s", type(exc).__name__)
+                synthesis = {
+                    "status": "failed",
+                    "error_code": type(exc).__name__,
+                }
+            except Exception:
+                logger.exception("Session synthesis failed unexpectedly")
+                synthesis = {
+                    "status": "failed",
+                    "error_code": "unexpected_synthesis_failure",
+                }
+            else:
+                synthesis = {
+                    "status": "completed",
+                    "result": result.model_dump(mode="json"),
+                }
         try:
-            path = recorder.finalize(interviewer.interview_state, usage=vars(summary))
+            path = recorder.finalize(
+                interviewer.interview_state,
+                usage=vars(summary),
+                synthesis=synthesis,
+            )
         except ArtifactWriteError:
             logger.exception("Session ended but its artifact could not be written")
             return

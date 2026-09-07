@@ -117,7 +117,14 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.clock.value += 60
         self.recorder.set_close("task_completed", created_at=self.clock())
 
-        path = self.recorder.finalize(state, usage={"llm_prompt_tokens": 42})
+        path = self.recorder.finalize(
+            state,
+            usage={"llm_prompt_tokens": 42},
+            synthesis={
+                "status": "completed",
+                "result": {"confidence": "medium"},
+            },
+        )
         artifact = json.loads(path.read_text(encoding="utf-8"))
 
         self.assertEqual(artifact["schema_version"], ARTIFACT_SCHEMA_VERSION)
@@ -132,6 +139,8 @@ class TranscriptRecorderTests(unittest.TestCase):
         evidence = artifact["objective_coverage"][0]["evidence"][0]
         self.assertEqual(evidence["source_turn_id"], respondent_turn.id)
         self.assertEqual(artifact["usage"]["llm_prompt_tokens"], 42)
+        self.assertEqual(artifact["synthesis"]["status"], "completed")
+        self.assertEqual(artifact["synthesis"]["result"]["confidence"], "medium")
         serialized = path.read_text(encoding="utf-8")
         self.assertNotIn("provider-user-1", serialized)
 

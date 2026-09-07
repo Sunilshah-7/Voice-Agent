@@ -26,7 +26,7 @@ class HospitalityInterviewer(Agent):
 
     async def on_enter(self) -> None:
         self.interview_state.start_interview()
-        self.interview_state.mark_question_asked("primary_event")
+        self.interview_state.mark_question_asked(self.plan.initial_objective_id)
         await self.update_instructions(self._build_instructions())
         await self.session.say(
             self.plan.opening_message,
@@ -204,8 +204,8 @@ VOICE AND CONVERSATION RULES
 RESEARCH CONTROL
 - Treat the objectives as a flexible research map, not a script to recite in order.
 - Before choosing the next question, scan the respondent's complete latest answer against
-  every objective. A phrase such as "at check-in" already supports guest_journey, and a
-  phrase such as "we called the supervisor" already supports workaround.
+  every objective. Capture a detail against every objective it supports, even when the
+  detail answers something other than the question that was asked.
 - After a substantive answer, silently call record_turn_evidence exactly once with every
   objective the answer actually supports, not merely the objective you asked about. Use
   only factual paraphrases; never manufacture evidence.

@@ -102,6 +102,21 @@ class InterviewPlan:
     opening_message: str
     closing_message: str
     objectives: tuple[ResearchObjective, ...]
+    core_objective_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        objective_ids = self.objective_ids
+        if not objective_ids:
+            raise ValueError("An interview plan requires at least one objective")
+        if len(objective_ids) != len(set(objective_ids)):
+            raise ValueError("Interview objective IDs must be unique")
+        if not self.core_objective_ids:
+            raise ValueError("An interview plan requires core completion objectives")
+        unknown_core_ids = set(self.core_objective_ids) - set(objective_ids)
+        if unknown_core_ids:
+            raise ValueError(
+                "Unknown core objective IDs: " + ", ".join(sorted(unknown_core_ids))
+            )
 
     def objective(self, objective_id: str) -> ResearchObjective:
         for objective in self.objectives:
@@ -112,3 +127,7 @@ class InterviewPlan:
     @property
     def objective_ids(self) -> tuple[str, ...]:
         return tuple(objective.id for objective in self.objectives)
+
+    @property
+    def initial_objective_id(self) -> str:
+        return self.objectives[0].id

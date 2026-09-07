@@ -14,10 +14,11 @@ The system is intentionally narrower than a general voice assistant. Every compo
 ## Architecture Status
 
 The diagrams distinguish implemented components from planned components. The current
-repository contains the LiveKit voice worker, hospitality interview state, finalized-turn
-recorder, and local JSON artifact writer. It does not currently contain a separate FastAPI
-application, Pipecat pipeline, database, analytics dashboard, or cross-interview synthesis
-service.
+repository contains the LiveKit voice worker, three hospitality interview plans, shared
+interview state, finalized-turn recorder, local JSON artifact writer, and post-interview
+synthesis step. It does not
+currently contain a separate FastAPI application, Pipecat pipeline, database, analytics
+dashboard, or cross-interview synthesis service.
 
 ### Implemented today
 
@@ -55,13 +56,14 @@ Local session artifact
   - completion and close state
   - plan and schema versions
   - permitted respondent context
+  - validated post-interview synthesis or explicit failure status
 ```
 
 The transport and provider pipeline are preserved. Milestone 1 adds the hospitality
 interviewer, versioned interview plan, explicit coverage state, deterministic budget and
 exit transitions, and internal tools that prevent premature completion.
 
-### Target after Milestone 3
+### Implemented Milestone 3 flow
 
 ```text
 Frontline employee
@@ -71,7 +73,7 @@ LiveKit voice pipeline (existing)
           |
           v
 Hospitality Interviewer
-  - interview plan
+  - selected versioned interview plan
   - privacy and safety policy
   - research-objective coverage
   - probe selection
@@ -220,9 +222,15 @@ Do not request guest names, room numbers, employee names, exact schedules, or ot
 - representative quotes and evidence turns
 - confidence and evidence gaps
 
-## First Interview Plan
+## Interview Template Set
 
-The first plan is `post_shift_guest_experience`.
+All templates use the same interviewer, state, transcript, and synthesis contracts. The
+LiveKit worker selects a template using the optional top-level job-metadata field
+`interview_plan_id`; the post-shift plan remains the default.
+
+### Post-shift guest experience
+
+The default plan is `post_shift_guest_experience`.
 
 Its research objectives are:
 
@@ -236,6 +244,19 @@ Its research objectives are:
 8. Capture a positive practice worth repeating.
 
 These are objectives, not a script that must be recited in order. The interviewer should use information already supplied and ask only the next question that materially improves the research record.
+
+### New process rollout
+
+`new_process_rollout` checks a new process or training against real-shift experience,
+expectation clarity, preparedness, workflow effect, friction, support or workarounds, an
+improvement, and a positive element worth retaining.
+
+### Recurring service breakdown
+
+`recurring_service_breakdown` develops a firsthand example into the journey stage,
+observed conditions, recurrence, impact, workaround, prior responses, a scoped next step,
+and a positive recovery practice. It explicitly avoids turning the interview into an
+investigation of individuals.
 
 ## Interview Policy
 
@@ -260,17 +281,18 @@ livekit-voice-agent/
 ├── agent.py
 ├── hospitality_agent/
 │   ├── interviewer.py        LiveKit Agent behavior and session coordination
-│   ├── plans.py              Versioned post-shift interview plan
+│   ├── plans.py              Three versioned hospitality plans and strict selection
 │   ├── state.py              Objective coverage and completion state
 │   ├── transcript.py         Final turn capture and session artifact writing (implemented)
-│   ├── synthesis.py          Evidence-grounded extraction (planned)
+│   ├── synthesis.py          Evidence-grounded extraction and validation (implemented)
 │   └── models.py             Typed domain and artifact models
 ├── outputs/                  Local-only artifacts; do not commit sensitive data
 └── tests/
 ```
 
-The interviewer, plan, state, transcript, and model modules are implemented. The synthesis
-module remains planned and should be introduced only with its tested behavior.
+The interviewer, plan registry, state, transcript, synthesis, and model modules are implemented.
+Synthesis runs only after the spoken interview and cannot prevent transcript persistence
+when generation or validation fails.
 
 ## Storage Evolution
 

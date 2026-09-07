@@ -37,12 +37,20 @@ The runnable application is in `livekit-voice-agent/`. It currently provides:
 - per-session latency and usage metrics
 - a Docker image and LiveKit project configuration
 
-Milestones 1 and 2 are implemented. The generic assistant has been replaced with a
+Milestones 1 through 4 are implemented. The generic assistant has been replaced with a
 hospitality interviewer, a versioned post-shift plan, explicit objective coverage, turn
 and time budgets, and controlled handling for skips, corrections, early exits, and
 sensitive disclosures. Finalized conversation turns, evidence links, completion state,
 permitted respondent context, close reason, and usage are written to a versioned local
-JSON artifact when the LiveKit job shuts down. Post-interview synthesis is the next milestone.
+JSON artifact when the LiveKit job shuts down. A separate post-interview model call now
+produces an evidence-linked synthesis and stores either its validated result or an explicit
+failure status without discarding the transcript.
+
+The same interviewer architecture now supports three versioned hospitality plans:
+
+- `post_shift_guest_experience` (default)
+- `new_process_rollout`
+- `recurring_service_breakdown`
 
 ## Target Interview
 
@@ -70,13 +78,19 @@ Each interview now produces a local artifact containing:
 - completion and LiveKit close reasons
 - interview-plan and artifact-schema versions
 - voice-pipeline usage metrics
+- synthesis status and, when successful, an evidence-linked operational finding
 
 Artifacts are written under `livekit-voice-agent/outputs/` by default. Set
 `SHIFT_SIGNAL_OUTPUT_DIR` to use another directory. The output directory is ignored by
 Git and Docker so local transcripts are not accidentally committed or copied into images.
 
-Operational synthesis—including root-cause hypotheses, representative quotes, confidence,
-and recommendations—is intentionally reserved for Milestone 3.
+Operational synthesis includes the issue, impact, root-cause hypotheses, reported frequency
+and severity, workaround, positive practice, a scoped action, representative quotes,
+confidence, and evidence gaps when those fields are supported. Every material statement
+references finalized respondent turns. Deterministic validation rejects unknown or
+interrupted evidence, non-verbatim quotes, unsupported frequency numbers, malformed output,
+and selected organization-wide overclaims. Semantic support for ordinary paraphrases remains
+a model-quality concern and should be reviewed in the artifact.
 
 Findings must remain traceable to what the respondent actually said. A single interview is evidence from one perspective, not proof of an organization-wide cause.
 
@@ -137,13 +151,29 @@ Optional per-session context may be passed in LiveKit job metadata under the str
 `role_category`, `shift_type`, `tenure_band`, `language`, and
 `anonymous_participation`. Other respondent fields are rejected.
 
+Select a non-default template with the top-level `interview_plan_id` field. For example:
+
+```json
+{
+  "interview_plan_id": "new_process_rollout",
+  "respondent_context": {
+    "department": "front_desk",
+    "shift_type": "evening"
+  }
+}
+```
+
+An absent or blank plan ID uses `post_shift_guest_experience`. An unknown or non-string
+ID is rejected by the selector; the worker logs that metadata problem and uses the default
+plan rather than guessing another template.
+
 ## Build Order
 
 1. Replace the generic assistant with the hospitality interview policy.
 2. Add an explicit interview plan, objective coverage, and stopping rules.
 3. Capture finalized transcript turns and write one session artifact. **Implemented.**
-4. Generate an evidence-grounded structured summary.
-5. Add additional hospitality interview templates.
+4. Generate an evidence-grounded structured summary. **Implemented.**
+5. Add additional hospitality interview templates. **Implemented.**
 6. Build a small transcript-and-insight review surface.
 7. Aggregate recurring signals across interviews, shifts, departments, and properties.
 8. Add durable storage, anonymous links or QR access, retention controls, and deployment hardening.

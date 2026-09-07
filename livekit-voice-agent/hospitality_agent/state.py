@@ -91,11 +91,10 @@ class InterviewState:
 
     @property
     def should_confirm(self) -> bool:
-        core = ("primary_event", "impact", "improvement")
         core_resolved = all(
             self.coverage[objective_id]
             in {ObjectiveStatus.SUFFICIENT, ObjectiveStatus.SKIPPED}
-            for objective_id in core
+            for objective_id in self.plan.core_objective_ids
         )
         return core_resolved and not self.uncovered_objective_ids
 

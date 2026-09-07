@@ -114,6 +114,13 @@ room or console shutdown should still be checked once in the user's LiveKit envi
 
 ## Milestone 3: Evidence-Grounded Synthesis
 
+**Status: implemented and locally validated.** A separate post-interview model call produces
+a typed result, cites finalized respondent turns, and is saved inside artifact schema 1.1.
+Generation or validation failure is recorded without losing the transcript. Deterministic
+tests cover malformed output, invalid or interrupted evidence links, invented quotations,
+invented numeric frequency, organization-wide overclaims, and superseded evidence exclusion.
+A real provider-backed shutdown and qualitative review remain manual checks.
+
 ### Build
 
 - Run synthesis after the interview rather than inside the spoken conversation.
@@ -121,6 +128,10 @@ room or console shutdown should still be checked once in the user's LiveKit envi
 - Link findings and quotes to transcript turn identifiers.
 - Include operational issue, guest impact, root-cause hypotheses, frequency, severity, workaround, positive practice, recommendation, confidence, and evidence gaps.
 - Reject or flag unsupported structured fields.
+
+The current validator enforces evidence identity, quote fidelity, numeric-frequency
+grounding, schema shape, and selected overclaim rules. It does not establish full semantic
+entailment for every model paraphrase, so the evidence links and gaps remain reviewer-visible.
 
 ### Acceptance criteria
 
@@ -132,6 +143,13 @@ room or console shutdown should still be checked once in the user's LiveKit envi
 - A reviewer can inspect why the system reached its conclusion.
 
 ## Milestone 4: Hospitality Template Set
+
+**Status: implemented and locally validated.** The plan registry now includes the original
+post-shift debrief, a new-process or training rollout check-in, and a recurring
+service-breakdown investigation. Each plan owns its objectives, opening question,
+completion objectives, duration, and turn budget while reusing the existing interviewer,
+state, transcript, and synthesis contracts. Strict LiveKit job-metadata selection is tested;
+a real voice session for each new plan remains a manual quality check.
 
 Add templates only after the first interview is reliable:
 

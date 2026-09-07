@@ -19,7 +19,7 @@ from .models import ArtifactStatus, InterviewPlan, RespondentContext, Transcript
 from .state import InterviewState
 
 
-ARTIFACT_SCHEMA_VERSION = "1.0"
+ARTIFACT_SCHEMA_VERSION = "1.1"
 _ALLOWED_ROLES = {"user": "respondent", "assistant": "interviewer"}
 
 
@@ -108,6 +108,7 @@ class TranscriptRecorder:
         state: InterviewState,
         *,
         usage: Mapping[str, int | float] | None = None,
+        synthesis: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         status = (
             ArtifactStatus.COMPLETED
@@ -153,6 +154,7 @@ class TranscriptRecorder:
             "respondent_context": context,
             "transcript": [asdict(turn) for turn in self.turns],
             "objective_coverage": coverage,
+            "synthesis": dict(synthesis or {"status": "not_run"}),
             "usage": dict(usage or {}),
         }
 
@@ -161,11 +163,12 @@ class TranscriptRecorder:
         state: InterviewState,
         *,
         usage: Mapping[str, int | float] | None = None,
+        synthesis: Mapping[str, object] | None = None,
     ) -> Path:
         if self._finalized_path is not None:
             return self._finalized_path
 
-        artifact = self.build_artifact(state, usage=usage)
+        artifact = self.build_artifact(state, usage=usage, synthesis=synthesis)
         final_path = self.output_dir / self._artifact_filename()
         temp_path: Path | None = None
         try:

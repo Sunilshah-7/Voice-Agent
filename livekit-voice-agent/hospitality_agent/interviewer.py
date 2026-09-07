@@ -7,14 +7,20 @@ from livekit.agents import Agent, llm
 from .models import InterviewPhase, InterviewPlan
 from .plans import POST_SHIFT_GUEST_EXPERIENCE
 from .state import InterviewState
+from .transcript import TranscriptRecorder
 
 
 class HospitalityInterviewer(Agent):
     """A concise interviewer whose research progress is explicit and inspectable."""
 
-    def __init__(self, plan: InterviewPlan = POST_SHIFT_GUEST_EXPERIENCE) -> None:
+    def __init__(
+        self,
+        plan: InterviewPlan = POST_SHIFT_GUEST_EXPERIENCE,
+        recorder: TranscriptRecorder | None = None,
+    ) -> None:
         self.plan = plan
         self.interview_state = InterviewState(plan)
+        self.recorder = recorder
         self._turn_instruction = "Begin with the configured opening message."
         super().__init__(instructions=self._build_instructions())
 
@@ -32,6 +38,8 @@ class HospitalityInterviewer(Agent):
         self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
     ) -> None:
         del turn_ctx
+        if self.recorder is not None:
+            self.recorder.record_chat_message(new_message)
         decision = self.interview_state.observe_respondent_turn(new_message.text_content or "")
         self._turn_instruction = decision.instruction
         await self.update_instructions(self._build_instructions())
@@ -74,6 +82,9 @@ class HospitalityInterviewer(Agent):
                     objective_id,
                     summary,
                     sufficient=sufficient,
+                    source_turn_id=(
+                        self.recorder.latest_respondent_turn_id if self.recorder else None
+                    ),
                 )
         except ValueError as exc:
             return f"Evidence was not recorded: {exc}."
@@ -104,6 +115,9 @@ class HospitalityInterviewer(Agent):
                 objective_id,
                 corrected_summary,
                 sufficient=sufficient,
+                source_turn_id=(
+                    self.recorder.latest_respondent_turn_id if self.recorder else None
+                ),
             )
         except ValueError as exc:
             return f"Correction was not recorded: {exc}."

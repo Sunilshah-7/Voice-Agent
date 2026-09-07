@@ -37,10 +37,12 @@ The runnable application is in `livekit-voice-agent/`. It currently provides:
 - per-session latency and usage metrics
 - a Docker image and LiveKit project configuration
 
-Milestone 1 is implemented: the generic assistant has been replaced with a hospitality
-interviewer, a versioned post-shift plan, explicit objective coverage, turn and time
-budgets, and controlled handling for skips, corrections, early exits, and sensitive
-disclosures. Transcript persistence and post-interview synthesis are the next milestone.
+Milestones 1 and 2 are implemented. The generic assistant has been replaced with a
+hospitality interviewer, a versioned post-shift plan, explicit objective coverage, turn
+and time budgets, and controlled handling for skips, corrections, early exits, and
+sensitive disclosures. Finalized conversation turns, evidence links, completion state,
+permitted respondent context, close reason, and usage are written to a versioned local
+JSON artifact when the LiveKit job shuts down. Post-interview synthesis is the next milestone.
 
 ## Target Interview
 
@@ -56,20 +58,25 @@ The first complete workflow is a four-to-six-minute post-shift debrief:
 
 The interviewer should ask one question at a time. It should be calm, neutral, concise, and curious—not evaluative, overly cheerful, or interrogative.
 
-## Intended Output
+## Session Artifact
 
-Each completed interview should eventually produce a durable artifact containing:
+Each interview now produces a local artifact containing:
 
 - optional property, department, role, shift, tenure-band, and language metadata
 - the timestamped transcript
-- research objectives covered and evidence still missing
-- the primary operational issue and guest impact
-- supported root-cause hypotheses
-- frequency and severity signals
-- staff workarounds and positive practices
-- representative quotes tied to transcript turns
-- recommended actions with confidence notes
-- completion reason and voice-pipeline metrics
+- research-objective coverage with active or superseded evidence
+- stable links from evidence to respondent transcript turns
+- completed versus incomplete status
+- completion and LiveKit close reasons
+- interview-plan and artifact-schema versions
+- voice-pipeline usage metrics
+
+Artifacts are written under `livekit-voice-agent/outputs/` by default. Set
+`SHIFT_SIGNAL_OUTPUT_DIR` to use another directory. The output directory is ignored by
+Git and Docker so local transcripts are not accidentally committed or copied into images.
+
+Operational synthesis—including root-cause hypotheses, representative quotes, confidence,
+and recommendations—is intentionally reserved for Milestone 3.
 
 Findings must remain traceable to what the respondent actually said. A single interview is evidence from one perspective, not proof of an organization-wide cause.
 
@@ -83,13 +90,15 @@ Findings must remain traceable to what the respondent actually said. A single in
 ├── prototype-plan.md            Phased implementation plan
 └── livekit-voice-agent/
     ├── agent.py                 Current LiveKit worker and voice pipeline
+    ├── hospitality_agent/       Interview state, transcript, and artifact modules
+    ├── tests/                   Deterministic behavior and persistence tests
     ├── pyproject.toml           Python dependencies
     ├── uv.lock                  Locked dependency graph
     ├── livekit.toml             LiveKit project and agent configuration
     └── Dockerfile               Agent deployment image
 ```
 
-Planned modules are documented in `ARCHITECTURE.md`; they do not exist yet.
+Implemented and planned modules are distinguished in `ARCHITECTURE.md`.
 
 ## Run the Current Agent
 
@@ -117,11 +126,22 @@ uv run agent.py start
 
 Do not commit provider credentials or LiveKit secrets.
 
+After ending a console or room session, inspect the newest JSON file in:
+
+```text
+livekit-voice-agent/outputs/
+```
+
+Optional per-session context may be passed in LiveKit job metadata under the strict
+`respondent_context` key. Supported fields are `property_id`, `department`,
+`role_category`, `shift_type`, `tenure_band`, `language`, and
+`anonymous_participation`. Other respondent fields are rejected.
+
 ## Build Order
 
 1. Replace the generic assistant with the hospitality interview policy.
 2. Add an explicit interview plan, objective coverage, and stopping rules.
-3. Capture finalized transcript turns and write one session artifact.
+3. Capture finalized transcript turns and write one session artifact. **Implemented.**
 4. Generate an evidence-grounded structured summary.
 5. Add additional hospitality interview templates.
 6. Build a small transcript-and-insight review surface.

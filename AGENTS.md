@@ -70,6 +70,9 @@ Do not use sarcasm. Do not praise every answer. Do not blame a respondent or ask
 
 - Only finalized transcript turns may support quotes or findings.
 - Attach transcript turn identifiers to extracted quotes and material findings.
+- Capture every objective supported by a respondent turn before choosing the next question.
+- Bind each spoken research question to an explicit objective so skips are deterministic.
+- Preserve corrected evidence as the active record and mark replaced evidence superseded.
 - Never invent a quote, frequency, severity, cause, or recommendation.
 - Label causes as hypotheses unless the transcript establishes them directly.
 - State evidence gaps and confidence.

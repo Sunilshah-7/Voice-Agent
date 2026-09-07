@@ -13,7 +13,11 @@ The system is intentionally narrower than a general voice assistant. Every compo
 
 ## Architecture Status
 
-The diagrams distinguish implemented components from planned components. The current repository contains the LiveKit voice worker. It does not currently contain a separate FastAPI application, Pipecat pipeline, database, analytics dashboard, or cross-interview synthesis service.
+The diagrams distinguish implemented components from planned components. The current
+repository contains the LiveKit voice worker, hospitality interview state, finalized-turn
+recorder, and local JSON artifact writer. It does not currently contain a separate FastAPI
+application, Pipecat pipeline, database, analytics dashboard, or cross-interview synthesis
+service.
 
 ### Implemented today
 
@@ -41,13 +45,23 @@ Session telemetry
   - model and pipeline metrics
   - time to first audio
   - usage summary
+
+Committed conversation events
+          |
+          v
+Local session artifact
+  - stable transcript turn IDs
+  - objective coverage and evidence links
+  - completion and close state
+  - plan and schema versions
+  - permitted respondent context
 ```
 
 The transport and provider pipeline are preserved. Milestone 1 adds the hospitality
 interviewer, versioned interview plan, explicit coverage state, deterministic budget and
 exit transitions, and internal tools that prevent premature completion.
 
-### Target V1
+### Target after Milestone 3
 
 ```text
 Frontline employee
@@ -110,6 +124,7 @@ Owns the research conversation:
 - required and optional objectives
 - follow-up selection
 - repetition avoidance
+- explicit binding between each spoken question and its research objective
 - handling skips, uncertainty, and early exits
 - safety escalation language
 - closing and completion reason
@@ -124,9 +139,14 @@ Owns the audit trail:
 - timestamps and stable turn identifiers
 - optional speech-provider confidence and language
 - objective-to-turn evidence links
+- active and superseded evidence when a respondent corrects an earlier statement
 - session metadata and completion state
 
 Only finalized turns should be treated as quotable evidence. Partial streaming transcripts may be useful for the live experience but must not silently become the final record.
+
+A respondent correction must supersede the affected earlier evidence rather than merely
+append a contradictory note. Likewise, a skip applies to the objective of the question
+actually asked, not whichever objective happens to be first in the plan.
 
 ### 4. Synthesis
 
@@ -233,34 +253,34 @@ The interviewer must:
 
 Potential safety, harassment, discrimination, medical, or emergency disclosures should not be investigated conversationally. The agent should acknowledge the concern, avoid promises, and direct the respondent to the configured human or emergency channel when one exists.
 
-## Planned Code Shape
+## Code Shape
 
 ```text
 livekit-voice-agent/
 ├── agent.py
 ├── hospitality_agent/
 │   ├── interviewer.py        LiveKit Agent behavior and session coordination
-│   ├── interview_plan.py     Plan loading and validation
+│   ├── plans.py              Versioned post-shift interview plan
 │   ├── state.py              Objective coverage and completion state
-│   ├── prompts.py            Focused instructions and reflection prompts
-│   ├── transcript.py         Final turn capture and session artifact writing
-│   ├── synthesis.py          Evidence-grounded structured extraction
-│   └── models.py             Typed domain and output models
-├── interview_plans/
-│   └── post_shift_guest_experience.yaml
+│   ├── transcript.py         Final turn capture and session artifact writing (implemented)
+│   ├── synthesis.py          Evidence-grounded extraction (planned)
+│   └── models.py             Typed domain and artifact models
 ├── outputs/                  Local-only artifacts; do not commit sensitive data
 └── tests/
 ```
 
-This layout is a target, not a claim about files that already exist. Modules should be introduced only as their behavior is implemented and tested.
+The interviewer, plan, state, transcript, and model modules are implemented. The synthesis
+module remains planned and should be introduced only with its tested behavior.
 
 ## Storage Evolution
 
 ### V1: local artifact
 
-- one structured JSON document per completed session
+- one structured JSON document per completed or interrupted session
 - suitable for local demos and behavior testing
 - recordings disabled unless explicitly needed
+- atomic, idempotent writes under `outputs/` or `SHIFT_SIGNAL_OUTPUT_DIR`
+- unique LiveKit job identity prevents room-name reuse from overwriting another interview
 
 ### Deployed prototype
 

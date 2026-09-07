@@ -52,6 +52,10 @@ The immediate work is therefore product behavior and research output—not repla
 room session; the state, policy, tool wiring, worker import, and deterministic scenarios
 are covered by the local validation suite.
 
+The implementation batches all objectives supported by each respondent turn, binds every
+research question to its objective, supersedes stale evidence after corrections, and limits
+the final confirmation to a short voice-friendly statement.
+
 ### Build
 
 - Replace the generic tech-support instructions.
@@ -84,6 +88,11 @@ are covered by the local validation suite.
 - Sensitive disclosure: agent acknowledges without investigating.
 
 ## Milestone 2: Transcript and Session Artifact
+
+**Status: implemented and locally validated.** The LiveKit worker captures committed
+conversation turns, links objective evidence to stable respondent turn IDs, records close
+and completion state, and atomically writes one versioned JSON artifact per job. A real
+room or console shutdown should still be checked once in the user's LiveKit environment.
 
 ### Build
 

@@ -185,7 +185,14 @@ class InterviewState:
             instruction="Continue with one useful probe or the most useful uncovered objective.",
         )
 
-    def record_evidence(self, objective_id: str, summary: str, *, sufficient: bool) -> EvidenceNote:
+    def record_evidence(
+        self,
+        objective_id: str,
+        summary: str,
+        *,
+        sufficient: bool,
+        source_turn_id: str | None = None,
+    ) -> EvidenceNote:
         self.plan.objective(objective_id)
         cleaned = " ".join(summary.split())
         if not cleaned:
@@ -194,6 +201,7 @@ class InterviewState:
             id=f"{objective_id}:{len(self.evidence_notes[objective_id]) + 1}",
             objective_id=objective_id,
             summary=cleaned,
+            source_turn_id=source_turn_id,
         )
         self.evidence_notes[objective_id].append(note)
         self.coverage[objective_id] = (
@@ -204,7 +212,12 @@ class InterviewState:
         return note
 
     def correct_evidence(
-        self, objective_id: str, corrected_summary: str, *, sufficient: bool
+        self,
+        objective_id: str,
+        corrected_summary: str,
+        *,
+        sufficient: bool,
+        source_turn_id: str | None = None,
     ) -> EvidenceNote:
         self.plan.objective(objective_id)
         active_notes = [note for note in self.evidence_notes[objective_id] if note.active]
@@ -212,6 +225,7 @@ class InterviewState:
             objective_id,
             corrected_summary,
             sufficient=sufficient,
+            source_turn_id=source_turn_id,
         )
         for note in active_notes:
             note.active = False

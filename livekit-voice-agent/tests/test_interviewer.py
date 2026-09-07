@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 
 from livekit.agents import llm
 
 from hospitality_agent.interviewer import HospitalityInterviewer
 from hospitality_agent.models import InterviewPhase
+from hospitality_agent.plans import POST_SHIFT_GUEST_EXPERIENCE
+from hospitality_agent.transcript import TranscriptRecorder
 
 
 class HospitalityInterviewerTests(unittest.IsolatedAsyncioTestCase):
@@ -121,6 +124,29 @@ class HospitalityInterviewerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Ask one concise question", result)
         self.assertEqual(agent.interview_state.coverage["impact"].value, "skipped")
+
+    async def test_evidence_links_to_latest_finalized_respondent_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as output_dir:
+            recorder = TranscriptRecorder(
+                plan=POST_SHIFT_GUEST_EXPERIENCE,
+                output_dir=output_dir,
+            )
+            agent = HospitalityInterviewer(recorder=recorder)
+            message = llm.ChatMessage(
+                id="provider-user-1",
+                role="user",
+                content=["Guests waited at check-in."],
+            )
+
+            await agent.on_user_turn_completed(llm.ChatContext.empty(), message)
+            await agent.record_turn_evidence(
+                ["primary_event", "guest_journey"],
+                ["Guests waited for rooms.", "The wait occurred at check-in."],
+                [True, True],
+            )
+
+            evidence = agent.interview_state.active_evidence("primary_event")[0]
+            self.assertEqual(evidence.source_turn_id, "turn-0001")
 
     async def test_agent_cannot_close_before_objectives_or_budget_are_resolved(self) -> None:
         agent = HospitalityInterviewer()

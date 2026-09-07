@@ -104,6 +104,8 @@ Findings must remain traceable to what the respondent actually said. A single in
 ├── prototype-plan.md            Phased implementation plan
 └── livekit-voice-agent/
     ├── agent.py                 Current LiveKit worker and voice pipeline
+    ├── review_app.py            Local read-only artifact review server
+    ├── review/                  Responsive review interface assets
     ├── hospitality_agent/       Interview state, transcript, and artifact modules
     ├── tests/                   Deterministic behavior and persistence tests
     ├── pyproject.toml           Python dependencies
@@ -167,6 +169,27 @@ An absent or blank plan ID uses `post_shift_guest_experience`. An unknown or non
 ID is rejected by the selector; the worker logs that metadata problem and uses the default
 plan rather than guessing another template.
 
+## Review Saved Interviews
+
+Milestone 5 adds a local, read-only operator review surface. After one or more session
+artifacts exist, run this from `livekit-voice-agent/`:
+
+```bash
+uv run review_app.py
+```
+
+Then open [http://127.0.0.1:8787](http://127.0.0.1:8787). The application reads from
+`outputs/` by default. To review a different artifact directory:
+
+```bash
+uv run review_app.py --output-dir /path/to/artifacts --port 8787
+```
+
+The interface displays incomplete interviews and synthesis failures explicitly. Evidence
+links jump to their finalized transcript turns, superseded evidence remains distinguishable,
+and the page consistently labels each result as one respondent's perspective. The server
+provides no mutation or deletion endpoint and binds to localhost unless explicitly changed.
+
 ## Build Order
 
 1. Replace the generic assistant with the hospitality interview policy.
@@ -174,7 +197,7 @@ plan rather than guessing another template.
 3. Capture finalized transcript turns and write one session artifact. **Implemented.**
 4. Generate an evidence-grounded structured summary. **Implemented.**
 5. Add additional hospitality interview templates. **Implemented.**
-6. Build a small transcript-and-insight review surface.
+6. Build a small transcript-and-insight review surface. **Implemented.**
 7. Aggregate recurring signals across interviews, shifts, departments, and properties.
 8. Add durable storage, anonymous links or QR access, retention controls, and deployment hardening.
 

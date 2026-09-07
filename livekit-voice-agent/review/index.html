@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>ShiftSignal Review</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="ShiftSignal review home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span><strong>ShiftSignal</strong><small>Interview review</small></span>
+      </a>
+      <div class="local-pill"><span></span> Local artifacts</div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="session-rail" aria-label="Interview sessions">
+        <div class="rail-heading">
+          <div><p class="eyebrow">Research library</p><h1>Interviews</h1></div>
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh sessions">↻</button>
+        </div>
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="session-search" type="search" placeholder="Filter interviews" autocomplete="off">
+        </label>
+        <p id="session-count" class="session-count"></p>
+        <div id="session-list" class="session-list"></div>
+      </aside>
+
+      <section id="detail" class="detail" aria-live="polite">
+        <div id="empty-state" class="empty-state">
+          <div class="empty-mark" aria-hidden="true">S</div>
+          <p class="eyebrow">Evidence before interpretation</p>
+          <h2>Select an interview to review</h2>
+          <p>Inspect the finding, its supporting turns, objective coverage, and the complete finalized transcript.</p>
+        </div>
+
+        <div id="review-content" class="review-content" hidden>
+          <section class="review-header">
+            <div>
+              <div id="header-badges" class="badge-row"></div>
+              <h2 id="plan-title"></h2>
+              <p id="session-subtitle" class="muted"></p>
+            </div>
+            <div id="confidence-card" class="confidence-card"></div>
+          </section>
+
+          <aside class="scope-note">
+            <strong>One interview, one perspective.</strong>
+            This artifact supports review and follow-up; it does not establish a property-wide trend.
+          </aside>
+
+          <section aria-labelledby="context-title">
+            <div class="section-heading"><div><p class="eyebrow">Session context</p><h3 id="context-title">Interview record</h3></div></div>
+            <div id="session-facts" class="facts-grid"></div>
+            <div id="context-chips" class="context-chips"></div>
+          </section>
+
+          <section aria-labelledby="finding-title">
+            <div class="section-heading">
+              <div><p class="eyebrow">Evidence-grounded output</p><h3 id="finding-title">Primary finding</h3></div>
+              <span id="synthesis-status" class="badge"></span>
+            </div>
+            <div id="synthesis-content"></div>
+          </section>
+
+          <section aria-labelledby="coverage-title">
+            <div class="section-heading"><div><p class="eyebrow">Research map</p><h3 id="coverage-title">Objective coverage</h3></div></div>
+            <div id="coverage-grid" class="coverage-grid"></div>
+          </section>
+
+          <section aria-labelledby="transcript-title">
+            <div class="section-heading">
+              <div><p class="eyebrow">Finalized evidence</p><h3 id="transcript-title">Transcript</h3></div>
+              <span id="turn-count" class="muted"></span>
+            </div>
+            <div id="transcript" class="transcript"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

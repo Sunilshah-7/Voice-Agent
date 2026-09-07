@@ -17,8 +17,8 @@ The diagrams distinguish implemented components from planned components. The cur
 repository contains the LiveKit voice worker, three hospitality interview plans, shared
 interview state, finalized-turn recorder, local JSON artifact writer, and post-interview
 synthesis step. It does not
-currently contain a separate FastAPI application, Pipecat pipeline, database, analytics
-dashboard, or cross-interview synthesis service.
+currently contain a separate FastAPI application, Pipecat pipeline, database,
+cross-interview analytics, or cross-interview synthesis service.
 
 ### Implemented today
 
@@ -57,6 +57,12 @@ Local session artifact
   - plan and schema versions
   - permitted respondent context
   - validated post-interview synthesis or explicit failure status
+          |
+          v
+Local read-only review surface
+  - session list and categorical context
+  - evidence-linked synthesis and coverage
+  - finalized transcript
 ```
 
 The transport and provider pipeline are preserved. Milestone 1 adds the hospitality
@@ -279,12 +285,15 @@ Potential safety, harassment, discrimination, medical, or emergency disclosures 
 ```text
 livekit-voice-agent/
 ├── agent.py
+├── review_app.py               Local read-only HTTP and artifact API
+├── review/                     Static review UI
 ├── hospitality_agent/
 │   ├── interviewer.py        LiveKit Agent behavior and session coordination
 │   ├── plans.py              Three versioned hospitality plans and strict selection
 │   ├── state.py              Objective coverage and completion state
 │   ├── transcript.py         Final turn capture and session artifact writing (implemented)
 │   ├── synthesis.py          Evidence-grounded extraction and validation (implemented)
+│   ├── review.py             Safe local artifact discovery and loading (implemented)
 │   └── models.py             Typed domain and artifact models
 ├── outputs/                  Local-only artifacts; do not commit sensitive data
 └── tests/
@@ -293,6 +302,11 @@ livekit-voice-agent/
 The interviewer, plan registry, state, transcript, synthesis, and model modules are implemented.
 Synthesis runs only after the spoken interview and cannot prevent transcript persistence
 when generation or validation fails.
+
+The review server is a separate local process backed by Python's standard library. It reads
+the same JSON artifacts and exposes only explicit list, detail, and static-asset routes. It
+does not modify artifacts, infer cross-interview trends, or become part of the LiveKit media
+worker.
 
 ## Storage Evolution
 

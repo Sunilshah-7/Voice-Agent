@@ -161,6 +161,13 @@ All templates should reuse the same plan, state, transcript, and synthesis contr
 
 ## Milestone 5: Review Surface
 
+**Status: implemented and locally validated.** A responsive, read-only local web interface
+lists saved sessions and renders status, permitted context, synthesis, coverage, evidence
+gaps, and the finalized transcript. Evidence controls navigate to supporting turn IDs;
+failed synthesis, incomplete sessions, interrupted turns, and superseded evidence remain
+visible. Loader and route tests cover malformed files, unknown sessions, path traversal,
+and write attempts. Browser rendering remains a manual visual acceptance check.
+
 Build a small operator-facing review experience showing:
 
 - interview status and completion reason

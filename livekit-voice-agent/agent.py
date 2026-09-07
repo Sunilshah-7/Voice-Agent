@@ -2,7 +2,7 @@ import logging
 
 from dotenv import load_dotenv
 from livekit import agents
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, room_io
+from livekit.agents import AgentServer, AgentSession, JobContext, room_io
 from livekit.plugins import noise_cancellation, silero
 # Import the multilingual turn detection model
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -10,20 +10,10 @@ from livekit.agents import llm, stt, tts, inference
 from livekit.agents import AgentStateChangedEvent, MetricsCollectedEvent, metrics
 import time
 
+from hospitality_agent import HospitalityInterviewer
+
 logger = logging.getLogger(__name__)
 load_dotenv()
-
-
-# Define your agent's behavior by extending the Agent class
-class Assistant(Agent):
-    def __init__(self) -> None:
-        super().__init__(
-            # Define personality: tone, style, and constraints
-            instructions=(
-                "You are an upbeat, slightly sarcastic voice AI for tech support. "
-                "Help the caller fix issues without rambling, and keep replies under 3 sentences."
-            ),
-        )
 
 
 server = AgentServer()
@@ -100,7 +90,7 @@ async def entrypoint(ctx: JobContext):
 
     # Start the session with noise cancellation enabled
     await session.start(
-        agent=Assistant(),
+        agent=HospitalityInterviewer(),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(

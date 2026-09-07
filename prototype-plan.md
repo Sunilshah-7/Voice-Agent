@@ -1,100 +1,202 @@
-# Real-Time Interview Voice Agent Prototype Plan
+# ShiftSignal Prototype Plan
 
-Date: 2026-09-05
+Date: 2026-09-06
 
-## Goal
+## Objective
 
-Build a lightweight, deployable prototype that conducts natural structured interviews at scale:
+Turn the working LiveKit voice agent into a focused hospitality research prototype that conducts natural post-shift interviews and produces evidence-grounded operational insights.
 
-- Browser voice interviews first.
-- Phone interviews second.
-- Real-time transcription, interruption handling, interview-state tracking, and post-call synthesis.
-- Small enough to ship quickly, but shaped like a production voice-agent system.
+The plan protects the working voice path and builds one small vertical slice at a time. The first milestone is not a platform, a generic survey builder, or an Arbor clone. It is one excellent hospitality interview with one reviewable output.
 
-## Recommended Stack
+## Chosen Use Case
 
-- Pipecat: pipeline orchestration for voice agents.
-- LiveKit: WebRTC rooms, browser voice sessions, optional cloud observability and telephony bridge.
-- Deepgram: streaming speech-to-text.
-- ElevenLabs: streaming text-to-speech.
-- Twilio: phone calls through Media Streams or LiveKit telephony.
-- FastAPI: prototype backend for session creation, interview configuration, and results.
-- Postgres or SQLite: transcript and interview-result storage.
-- S3-compatible object storage: optional call recordings/audio artifacts.
+**Post-shift guest-experience debrief**
 
-## V1 Architecture
+Target respondents include front-desk associates, housekeepers, food-and-beverage staff, maintenance technicians, guest-services employees, and shift supervisors.
 
-User joins from browser or phone.
+Target duration: four to six minutes.
 
-For browser:
+Research question:
 
-1. Frontend requests an interview session from the backend.
-2. Backend creates or joins a LiveKit room.
-3. Pipecat/agent process joins the same room as an AI participant.
-4. LiveKit transports real-time audio.
-5. Pipecat pipeline runs VAD/turn detection, Deepgram STT, LLM interview policy, ElevenLabs TTS.
-6. Transcript events and state updates are persisted.
-7. End-of-interview summarizer extracts themes, quotes, issue tags, and follow-up recommendations.
+> What happened during this shift that most affected a guest's experience, why did it happen, and what practical change could improve it?
 
-For phone:
+## Existing Foundation
 
-1. Twilio receives inbound call or places outbound call.
-2. Twilio streams audio using bidirectional Media Streams, or Twilio is connected to LiveKit through LiveKit SIP/Twilio Connector.
-3. The same Pipecat interview pipeline runs.
-4. Results are stored using the same schema.
+The `livekit-voice-agent/` directory already contains the working real-time pipeline:
 
-## V1 Features
+- LiveKit AgentSession
+- LLM, STT, and TTS provider fallbacks
+- voice activity and multilingual turn detection
+- background voice cancellation
+- preemptive generation and interruption support
+- latency and usage metrics
+- LiveKit configuration and container deployment files
 
-- Interview script config: title, goal, respondent type, required questions, optional probes.
-- Natural interviewer behavior: greet, explain consent, ask one question at a time, probe briefly, recover from unclear answers, close politely.
-- Turn-taking: interruption support and short endpointing delays.
-- Transcript capture: user utterances, agent utterances, timestamps, confidence where available.
-- Structured extraction: themes, pain points, quotes, sentiment, location/role metadata, action items.
-- Dashboard-lite: table of sessions and a detail page for transcript plus summary.
-- Deployment: Dockerized FastAPI/Pipecat service; LiveKit Cloud or Pipecat Cloud for managed scaling.
+The immediate work is therefore product behavior and research output—not replacement of the real-time audio architecture.
 
-## Scaling Shape
+## Product Principles
 
-For a prototype, scale by one agent process per active interview. Keep the application stateless except session metadata and transcripts. Use a queue or managed deployment pool later.
+- Treat interview objectives as a flexible research map, not a fixed script.
+- Ask one question at a time and follow the respondent's most useful detail.
+- Prefer a short clarifying probe over generic encouragement.
+- Protect respondent dignity and avoid evaluative or blame-oriented language.
+- Minimize collection of identifiable information.
+- Preserve transcript evidence before generating an interpretation.
+- Clearly separate observations, hypotheses, and recommendations.
+- Do not infer organization-wide prevalence from an individual interview.
+- Optimize for a usable manager decision, not merely a complete transcript.
 
-Minimum viable scaling:
+## Milestone 1: Hospitality Interviewer
 
-- One process per call/session.
-- Store all durable state outside the agent process.
-- Cap max concurrent sessions to control spend.
-- Keep one warm worker only when demo latency matters.
-- Use cloud logs/traces/transcripts for debugging.
+**Status: implemented and locally validated.** Live voice quality still requires a manual
+room session; the state, policy, tool wiring, worker import, and deterministic scenarios
+are covered by the local validation suite.
 
-## Build Milestones
+### Build
 
-1. Browser voice demo.
-   - Local Pipecat bot.
-   - Deepgram STT.
-   - ElevenLabs TTS.
-   - Simple interview prompt.
-   - Save transcript JSON.
+- Replace the generic tech-support instructions.
+- Add a hospitality interviewer class.
+- Add a versioned `post_shift_guest_experience` plan.
+- Track phases: opening, interviewing, confirmation, closing, completed.
+- Track objective coverage separately from question order.
+- Add time and turn budgets.
+- Add skip, correction, uncertainty, early-exit, and sensitive-disclosure behavior.
+- Generate an explicit opening and natural closing.
 
-2. Structured interview engine.
-   - Interview plan schema.
-   - State machine for intro, questions, probes, close.
-   - End-of-call summary.
+### Acceptance criteria
 
-3. LiveKit integration.
-   - LiveKit room creation.
-   - Agent joins room.
-   - Browser client joins room.
+- The agent identifies itself and accurately sets expectations.
+- It asks only one question at a time.
+- It does not ask for details already supplied.
+- It can leave the nominal question order to pursue useful evidence.
+- It returns to uncovered objectives after a probe.
+- It reflects the main finding back before closing.
+- It completes within the configured budget.
 
-4. Twilio phone path.
-   - Inbound phone call webhook.
-   - Bidirectional media stream or LiveKit telephony bridge.
-   - Same interview pipeline reused.
+### Test scenarios
 
-5. Deployable demo.
-   - Dockerfile.
-   - Environment variable template.
-   - Health endpoint.
-   - Minimal dashboard.
+- Front desk: rooms unavailable at check-in because status updates lag.
+- Housekeeping: supply shortage creates inconsistent room readiness.
+- Restaurant: kitchen-to-server handoff causes long guest wait times.
+- Maintenance: recurring HVAC complaints are temporarily worked around.
+- Positive shift: no major incident, but one practice is worth sharing.
+- Minimal respondent: short answers, skips, and an early exit.
+- Sensitive disclosure: agent acknowledges without investigating.
 
-## Why This Is A Good Application Prototype
+## Milestone 2: Transcript and Session Artifact
 
-This maps directly onto real Arbor-style work: real-time voice agents, interviews at scale, frontline/customer research, transcription, synthesis, guardrails, deployment, and observability. It is credible without needing to clone their product.
+### Build
+
+- Capture finalized agent and respondent transcript turns.
+- Assign stable turn identifiers and timestamps.
+- Preserve interview plan and schema versions.
+- Save respondent metadata only when supplied and allowed.
+- Record objective coverage and completion reason.
+- Write one JSON artifact per session for local development.
+- Keep partial transcripts and routine logs out of the evidence record.
+
+### Acceptance criteria
+
+- Every final quote can be traced to a respondent turn.
+- A disconnect or duplicate completion event cannot create contradictory results.
+- An incomplete interview remains distinguishable from a completed one.
+- No secrets or unnecessary personal identifiers appear in the artifact.
+- Failure to write the artifact is observable and not reported as success.
+
+## Milestone 3: Evidence-Grounded Synthesis
+
+### Build
+
+- Run synthesis after the interview rather than inside the spoken conversation.
+- Produce a validated structured result.
+- Link findings and quotes to transcript turn identifiers.
+- Include operational issue, guest impact, root-cause hypotheses, frequency, severity, workaround, positive practice, recommendation, confidence, and evidence gaps.
+- Reject or flag unsupported structured fields.
+
+### Acceptance criteria
+
+- The summary does not invent facts or quotations.
+- The primary finding is supported by cited turns.
+- Root causes are labeled as hypotheses where appropriate.
+- Frequency reflects the respondent's wording rather than an invented number.
+- The recommendation is proportionate to the evidence.
+- A reviewer can inspect why the system reached its conclusion.
+
+## Milestone 4: Hospitality Template Set
+
+Add templates only after the first interview is reliable:
+
+1. Post-shift guest-experience debrief.
+2. New process or training rollout check-in.
+3. Recurring service-breakdown investigation.
+
+All templates should reuse the same plan, state, transcript, and synthesis contracts. Templates vary research objectives and domain probes; they do not create separate agent architectures.
+
+## Milestone 5: Review Surface
+
+Build a small operator-facing review experience showing:
+
+- interview status and completion reason
+- permitted property, department, role, and shift metadata
+- transcript with stable turn identifiers
+- objective coverage
+- primary issue and guest impact
+- root-cause hypotheses
+- workaround and positive practice
+- recommended action
+- quotes, evidence, confidence, and gaps
+
+The review surface should make evidence inspection easier. It should not imply that one interview represents a trend.
+
+## Milestone 6: Cross-Interview Intelligence
+
+After individual artifacts are trustworthy:
+
+- group recurring issues across property, department, role, and shift
+- compare patterns between properties using minimum sample thresholds
+- detect newly emerging or increasing issues
+- surface successful practices that may transfer elsewhere
+- retain links from every aggregate finding to supporting interviews
+
+At this stage, move from local JSON to durable transactional storage suitable for the deployment topology.
+
+## Milestone 7: Distribution and Deployment
+
+Potential additions:
+
+- anonymous browser participation links
+- QR-code distribution
+- plan selection and respondent metadata setup
+- controlled worker concurrency
+- prompt, plan, and schema version tracking
+- transcript retention and deletion controls
+- deployment monitoring that excludes sensitive content
+- optional LiveKit SIP or phone entry
+
+Phone support is not required for the first compelling prototype. It should reuse the same interview intelligence and artifact pipeline when introduced.
+
+## Explicit Non-Goals for Early Milestones
+
+- cloning Arbor's interface or brand
+- a general-purpose chatbot
+- hotel reservations or guest concierge features
+- a survey-form builder
+- multi-agent orchestration
+- a full enterprise dashboard
+- predictive scoring from insufficient interviews
+- automatic managerial action without human review
+- adding Pipecat, FastAPI, Twilio, or a new database before a concrete requirement
+
+## Definition of V1 Complete
+
+V1 is complete when a real voice session can:
+
+1. conduct the post-shift interview naturally
+2. discover and clarify an operational event
+3. avoid rigid or repetitive questioning
+4. confirm the respondent's meaning
+5. save a reliable final transcript
+6. create a structured, evidence-linked hospitality insight
+7. expose failures and incomplete sessions honestly
+
+A working call without transcript persistence and evidence-grounded output is an important checkpoint, but it is not the completed V1.

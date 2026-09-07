@@ -1,170 +1,145 @@
-# Interview Voice Agent
+# ShiftSignal
 
-A lightweight prototype for real-time AI interview agents that can conduct structured frontline/customer research conversations, save transcripts, and produce operational summaries.
+ShiftSignal is a LiveKit voice-agent prototype for short, natural hospitality interviews. It is designed to help hotel operators learn what frontline staff observed during a shift, understand how operational problems affected guests, and identify practical improvements.
 
-The first version starts with a text-mode interview engine and API. The voice stack will then plug in step by step:
+The first use case is a **post-shift guest-experience debrief** with hotel employees such as front-desk associates, housekeepers, restaurant staff, maintenance technicians, guest-services employees, and shift supervisors.
 
-- LiveKit for browser/WebRTC rooms
-- Pipecat for real-time voice pipeline orchestration
-- Deepgram for streaming speech-to-text
-- ElevenLabs for streaming text-to-speech
-- Twilio for phone interviews
+This is an independent prototype inspired by the operational-listening problem described by Arbor. It is not an Arbor product or a reproduction of Arbor's platform.
 
-## Why This Exists
+## Product Thesis
 
-Cold applications are weak. A working prototype is a stronger signal.
+Hospitality leaders often see outcomes in reviews, satisfaction scores, and operational reports after the fact. Frontline staff usually know the missing context:
 
-This project demonstrates the core pattern behind scaled AI research interviews:
+- what happened during the guest journey
+- why it happened
+- whether it is recurring
+- how staff worked around it
+- what small change could prevent it next time
 
-1. Create an interview plan.
-2. Start a respondent session.
-3. Ask natural questions and follow-up probes.
-4. Capture a clean transcript.
-5. Synthesize themes, quotes, risks, and suggested actions.
+ShiftSignal uses a voice interview rather than a fixed survey so it can ask a relevant follow-up, clarify the impact, and capture the respondent's own explanation.
 
-## Current Status
+The prototype's core promise is:
 
-Phase 1 is a deployable local web app and interview engine:
+> Learn what disrupted the guest experience during each shift, why it happened, and what managers should fix first.
 
-- create a session
-- submit respondent answers
-- receive the next interviewer prompt
-- save transcript turns in memory
-- generate a lightweight structured summary
-- use a browser console for session creation, transcript review, and summary generation
+## Current Working System
 
-Voice providers are intentionally not wired yet. The current slice makes the interview behavior testable before adding real-time audio.
+The runnable application is in `livekit-voice-agent/`. It currently provides:
+
+- a LiveKit Agents worker and real-time room session
+- OpenAI LLM with Gemini fallback through LiveKit Inference
+- Deepgram STT with AssemblyAI fallback
+- Cartesia TTS with Inworld fallback
+- Silero voice activity detection
+- multilingual turn detection
+- background voice cancellation
+- interruption-aware, preemptive response generation
+- per-session latency and usage metrics
+- a Docker image and LiveKit project configuration
+
+Milestone 1 is implemented: the generic assistant has been replaced with a hospitality
+interviewer, a versioned post-shift plan, explicit objective coverage, turn and time
+budgets, and controlled handling for skips, corrections, early exits, and sensitive
+disclosures. Transcript persistence and post-interview synthesis are the next milestone.
+
+## Target Interview
+
+The first complete workflow is a four-to-six-minute post-shift debrief:
+
+1. Explain the purpose, anonymity option, and privacy boundaries.
+2. Ask what most affected a guest's experience during the shift.
+3. Follow the most useful thread to learn what happened and why.
+4. Clarify frequency, guest or staff impact, and any workaround.
+5. Ask what management could change in the near term.
+6. Capture something the team handled well.
+7. Reflect the main finding back for correction, then close.
+
+The interviewer should ask one question at a time. It should be calm, neutral, concise, and curious—not evaluative, overly cheerful, or interrogative.
+
+## Intended Output
+
+Each completed interview should eventually produce a durable artifact containing:
+
+- optional property, department, role, shift, tenure-band, and language metadata
+- the timestamped transcript
+- research objectives covered and evidence still missing
+- the primary operational issue and guest impact
+- supported root-cause hypotheses
+- frequency and severity signals
+- staff workarounds and positive practices
+- representative quotes tied to transcript turns
+- recommended actions with confidence notes
+- completion reason and voice-pipeline metrics
+
+Findings must remain traceable to what the respondent actually said. A single interview is evidence from one perspective, not proof of an organization-wide cause.
 
 ## Project Layout
 
 ```text
 .
-├── AGENTS.md
-├── ARCHITECTURE.md
-├── README.md
-├── prototype-plan.md
-├── report-source.md
-├── pyproject.toml
-├── Dockerfile
-└── src/
-    └── interview_agent/
-        ├── __init__.py
-        ├── config.py
-        ├── engine.py
-        ├── main.py
-        ├── models.py
-        ├── static/
-        ├── store.py
-        └── synthesis.py
+├── AGENTS.md                    Contributor guidance and product guardrails
+├── ARCHITECTURE.md              Current and target system architecture
+├── README.md                    Product overview and local operation
+├── prototype-plan.md            Phased implementation plan
+└── livekit-voice-agent/
+    ├── agent.py                 Current LiveKit worker and voice pipeline
+    ├── pyproject.toml           Python dependencies
+    ├── uv.lock                  Locked dependency graph
+    ├── livekit.toml             LiveKit project and agent configuration
+    └── Dockerfile               Agent deployment image
 ```
 
-## Run Locally
+Planned modules are documented in `ARCHITECTURE.md`; they do not exist yet.
 
-Install dependencies:
+## Run the Current Agent
+
+Requirements:
+
+- Python 3.11 or later
+- `uv`
+- a LiveKit project
+- LiveKit credentials available in the environment or a local `.env`
+
+From the agent directory:
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
+cd livekit-voice-agent
+uv sync --locked
+uv run agent.py download-files
+uv run agent.py dev
 ```
 
-Start the API:
+For a production-style worker:
 
 ```bash
-uvicorn interview_agent.main:app --reload
+uv run agent.py start
 ```
 
-Open:
+Do not commit provider credentials or LiveKit secrets.
 
-```text
-http://127.0.0.1:8000
-```
+## Build Order
 
-API docs are available at:
+1. Replace the generic assistant with the hospitality interview policy.
+2. Add an explicit interview plan, objective coverage, and stopping rules.
+3. Capture finalized transcript turns and write one session artifact.
+4. Generate an evidence-grounded structured summary.
+5. Add additional hospitality interview templates.
+6. Build a small transcript-and-insight review surface.
+7. Aggregate recurring signals across interviews, shifts, departments, and properties.
+8. Add durable storage, anonymous links or QR access, retention controls, and deployment hardening.
 
-```text
-http://127.0.0.1:8000/docs
-```
+Phone entry, a separate application API, and a full analytics product are later options. They are not dependencies for proving the first LiveKit hospitality interview.
 
-## Example API Flow
+## V1 Demo Bar
 
-Create a session:
+A successful V1 should show one complete story:
 
-```bash
-curl -X POST http://127.0.0.1:8000/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "respondent_label": "Warehouse shift lead",
-    "plan": {
-      "title": "Frontline operations interview",
-      "goal": "Understand recurring workflow blockers and improvement ideas.",
-      "questions": [
-        "What part of your shift creates the most avoidable delay?",
-        "What workaround do experienced teammates use that new people miss?",
-        "If leadership fixed one thing this month, what should it be?"
-      ]
-    }
-  }'
-```
+1. A hotel employee joins a LiveKit room.
+2. The interviewer sets expectations and begins a short debrief.
+3. It discovers a concrete guest-experience problem.
+4. It probes from the symptom to an operational cause without following a rigid script.
+5. It captures the impact, recurrence, workaround, and proposed fix.
+6. It confirms its understanding and closes naturally.
+7. The system saves a transcript and produces an evidence-grounded hospitality insight.
 
-Submit an answer:
-
-```bash
-curl -X POST http://127.0.0.1:8000/sessions/{session_id}/turns \
-  -H "Content-Type: application/json" \
-  -d '{"text": "The biggest delay is waiting for inventory checks before loading."}'
-```
-
-Get a summary:
-
-```bash
-curl http://127.0.0.1:8000/sessions/{session_id}/summary
-```
-
-## Docker
-
-Build the image:
-
-```bash
-docker build -t interview-voice-agent .
-```
-
-Run the container:
-
-```bash
-docker run --rm -p 8000:8000 --env-file .env interview-voice-agent
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000
-```
-
-## Environment
-
-The first slice does not require provider keys.
-
-Future voice integration will use:
-
-```text
-LIVEKIT_URL=
-LIVEKIT_API_KEY=
-LIVEKIT_API_SECRET=
-DEEPGRAM_API_KEY=
-ELEVENLABS_API_KEY=
-ELEVENLABS_VOICE_ID=
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_PHONE_NUMBER=
-```
-
-## Roadmap
-
-1. Text-mode interview engine and API.
-2. Tests for state transitions and summary generation.
-3. Browser voice path with LiveKit/Pipecat.
-4. Deepgram STT and ElevenLabs TTS.
-5. Twilio phone path.
-6. Docker deployment.
-7. Minimal dashboard for sessions, transcripts, and summaries.
+Voice quality alone is not completion. The prototype is complete only when the conversation yields a useful, reviewable research artifact.

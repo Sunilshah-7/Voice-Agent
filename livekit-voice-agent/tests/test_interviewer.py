@@ -19,7 +19,10 @@ class HospitalityInterviewerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Do not ask the respondent to repeat it", instructions)
         self.assertIn("Never ask for guest names, room numbers", instructions)
         self.assertIn("Do not promise that management will act", instructions)
-        self.assertIn("record_objective_evidence", instructions)
+        self.assertIn("record_turn_evidence", instructions)
+        self.assertIn("correct_objective_evidence", instructions)
+        self.assertIn("select_next_objective", instructions)
+        self.assertIn("than 28 spoken words", instructions)
 
     def test_agent_exposes_only_internal_research_control_tools(self) -> None:
         agent = HospitalityInterviewer()
@@ -28,7 +31,9 @@ class HospitalityInterviewerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             names,
             {
-                "record_objective_evidence",
+                "record_turn_evidence",
+                "correct_objective_evidence",
+                "select_next_objective",
                 "prepare_interview_close",
                 "finish_interview",
             },
@@ -58,8 +63,64 @@ class HospitalityInterviewerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(agent.interview_state.phase, InterviewPhase.CONFIRMATION)
-        self.assertIn("confirm", result)
+        self.assertIn("28 spoken words", result)
+        self.assertIn("Did I get that right?", result)
         self.assertIn("Delayed room-status updates", agent.interview_state.main_finding or "")
+
+    async def test_batch_capture_records_every_objective_in_the_first_answer(self) -> None:
+        agent = HospitalityInterviewer()
+
+        result = await agent.record_turn_evidence(
+            ["primary_event", "guest_journey"],
+            [
+                "Guests waited because rooms were marked dirty.",
+                "The wait occurred at check-in.",
+            ],
+            [True, True],
+        )
+
+        self.assertIn("next uncovered objective is operational_context", result)
+        self.assertEqual(agent.interview_state.current_objective_id, "operational_context")
+
+    async def test_screenshot_conversation_retains_only_corrected_cause(self) -> None:
+        agent = HospitalityInterviewer()
+        await agent.record_turn_evidence(
+            ["primary_event", "guest_journey"],
+            ["Guests waited for rooms.", "The wait happened at check-in."],
+            [True, True],
+        )
+        await agent.record_turn_evidence(
+            ["operational_context", "recurrence", "workaround"],
+            [
+                "Room status was not updated after housekeeping finished.",
+                "It happened three times this week.",
+                "The team called the housekeeping supervisor manually.",
+            ],
+            [True, True, True],
+        )
+
+        await agent.correct_objective_evidence(
+            "operational_context",
+            "Housekeeping updated the rooms, but the front-desk system was delayed.",
+            True,
+        )
+
+        active = agent.interview_state.active_evidence("operational_context")
+        self.assertEqual(len(active), 1)
+        self.assertIn("front-desk system", active[0].summary)
+        self.assertNotIn("not updated after housekeeping", active[0].summary)
+
+    async def test_next_question_binding_makes_skip_target_explicit(self) -> None:
+        agent = HospitalityInterviewer()
+        result = await agent.select_next_objective("impact")
+
+        await agent.on_user_turn_completed(
+            llm.ChatContext.empty(),
+            llm.ChatMessage(role="user", content=["I don't know. Please skip that."]),
+        )
+
+        self.assertIn("Ask one concise question", result)
+        self.assertEqual(agent.interview_state.coverage["impact"].value, "skipped")
 
     async def test_agent_cannot_close_before_objectives_or_budget_are_resolved(self) -> None:
         agent = HospitalityInterviewer()

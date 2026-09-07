@@ -9,6 +9,7 @@ from typing import Callable
 
 from .models import (
     CompletionReason,
+    EvidenceNote,
     InterviewPhase,
     InterviewPlan,
     ObjectiveStatus,
@@ -52,8 +53,9 @@ class InterviewState:
     corrections: int = 0
     sensitive_disclosure: bool = False
     main_finding: str | None = None
+    asked_objective_id: str | None = None
     coverage: dict[str, ObjectiveStatus] = field(init=False)
-    evidence_notes: dict[str, list[str]] = field(init=False)
+    evidence_notes: dict[str, list[EvidenceNote]] = field(init=False)
     started_at: float | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -101,6 +103,15 @@ class InterviewState:
         if self.phase == InterviewPhase.OPENING:
             self.started_at = self.clock()
             self.phase = InterviewPhase.INTERVIEWING
+
+    def mark_question_asked(self, objective_id: str) -> None:
+        self.plan.objective(objective_id)
+        if self.coverage[objective_id] not in {
+            ObjectiveStatus.NOT_STARTED,
+            ObjectiveStatus.PARTIAL,
+        }:
+            raise ValueError(f"Objective is already resolved: {objective_id}")
+        self.asked_objective_id = objective_id
 
     def observe_respondent_turn(self, text: str) -> TurnDecision:
         """Apply deterministic safety and budget transitions before the LLM responds."""
@@ -152,14 +163,16 @@ class InterviewState:
                 kind="correction",
                 instruction=(
                     "Accept the correction without defensiveness, use the corrected information, "
-                    "and ask at most one necessary follow-up."
+                    "call correct_objective_evidence for every affected objective, and ask at "
+                    "most one necessary follow-up."
                 ),
             )
 
         if self._matches(_SKIP_PATTERNS, normalized):
-            current = self.current_objective_id
-            if current is not None:
-                self.coverage[current] = ObjectiveStatus.SKIPPED
+            skipped = self.asked_objective_id or self.current_objective_id
+            if skipped is not None:
+                self.coverage[skipped] = ObjectiveStatus.SKIPPED
+            self.asked_objective_id = None
             if not self.uncovered_objective_ids:
                 self.phase = InterviewPhase.CONFIRMATION
             return TurnDecision(
@@ -172,17 +185,42 @@ class InterviewState:
             instruction="Continue with one useful probe or the most useful uncovered objective.",
         )
 
-    def record_evidence(self, objective_id: str, summary: str, *, sufficient: bool) -> None:
+    def record_evidence(self, objective_id: str, summary: str, *, sufficient: bool) -> EvidenceNote:
         self.plan.objective(objective_id)
         cleaned = " ".join(summary.split())
         if not cleaned:
             raise ValueError("Evidence summary cannot be empty")
-        self.evidence_notes[objective_id].append(cleaned)
+        note = EvidenceNote(
+            id=f"{objective_id}:{len(self.evidence_notes[objective_id]) + 1}",
+            objective_id=objective_id,
+            summary=cleaned,
+        )
+        self.evidence_notes[objective_id].append(note)
         self.coverage[objective_id] = (
             ObjectiveStatus.SUFFICIENT if sufficient else ObjectiveStatus.PARTIAL
         )
         if self.should_confirm:
             self.phase = InterviewPhase.CONFIRMATION
+        return note
+
+    def correct_evidence(
+        self, objective_id: str, corrected_summary: str, *, sufficient: bool
+    ) -> EvidenceNote:
+        self.plan.objective(objective_id)
+        active_notes = [note for note in self.evidence_notes[objective_id] if note.active]
+        replacement = self.record_evidence(
+            objective_id,
+            corrected_summary,
+            sufficient=sufficient,
+        )
+        for note in active_notes:
+            note.active = False
+            note.superseded_by = replacement.id
+        return replacement
+
+    def active_evidence(self, objective_id: str) -> tuple[EvidenceNote, ...]:
+        self.plan.objective(objective_id)
+        return tuple(note for note in self.evidence_notes[objective_id] if note.active)
 
     def begin_confirmation(self, main_finding: str) -> None:
         if self.phase != InterviewPhase.CONFIRMATION and not self.should_confirm:
@@ -206,7 +244,8 @@ class InterviewState:
         return (
             f"phase={self.phase.value}; respondent_turns={self.respondent_turns}/"
             f"{self.plan.max_respondent_turns}; coverage=[{coverage}]; "
-            f"current_objective={self.current_objective_id or 'none'}"
+            f"current_objective={self.current_objective_id or 'none'}; "
+            f"asked_objective={self.asked_objective_id or 'none'}"
         )
 
     @staticmethod

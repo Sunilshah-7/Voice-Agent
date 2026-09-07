@@ -37,6 +37,15 @@ class ResearchObjective:
     suggested_probes: tuple[str, ...] = ()
 
 
+@dataclass(slots=True)
+class EvidenceNote:
+    id: str
+    objective_id: str
+    summary: str
+    active: bool = True
+    superseded_by: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class InterviewPlan:
     id: str

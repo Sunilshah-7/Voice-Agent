@@ -55,6 +55,15 @@ class InterviewStateTests(unittest.TestCase):
         self.assertEqual(self.state.phase, InterviewPhase.INTERVIEWING)
         self.assertIn("without asking why", decision.instruction)
 
+    def test_skip_applies_to_the_question_actually_asked(self) -> None:
+        self.state.mark_question_asked("workaround")
+
+        self.state.observe_respondent_turn("Please skip that question.")
+
+        self.assertEqual(self.state.coverage["workaround"], ObjectiveStatus.SKIPPED)
+        self.assertEqual(self.state.coverage["primary_event"], ObjectiveStatus.NOT_STARTED)
+        self.assertIsNone(self.state.asked_objective_id)
+
     def test_correction_is_accepted_and_counted(self) -> None:
         decision = self.state.observe_respondent_turn(
             "Actually, that's not right. The delay happened before check-in."
@@ -63,6 +72,27 @@ class InterviewStateTests(unittest.TestCase):
         self.assertEqual(decision.kind, "correction")
         self.assertEqual(self.state.corrections, 1)
         self.assertIn("without defensiveness", decision.instruction)
+        self.assertIn("correct_objective_evidence", decision.instruction)
+
+    def test_corrected_evidence_supersedes_the_old_explanation(self) -> None:
+        old_note = self.state.record_evidence(
+            "operational_context",
+            "Housekeeping did not update the room status.",
+            sufficient=True,
+        )
+
+        replacement = self.state.correct_evidence(
+            "operational_context",
+            "Housekeeping updated it, but the front-desk system was delayed.",
+            sufficient=True,
+        )
+
+        self.assertFalse(old_note.active)
+        self.assertEqual(old_note.superseded_by, replacement.id)
+        self.assertEqual(
+            [note.summary for note in self.state.active_evidence("operational_context")],
+            ["Housekeeping updated it, but the front-desk system was delayed."],
+        )
 
     def test_explicit_request_to_end_moves_directly_to_closing(self) -> None:
         decision = self.state.observe_respondent_turn("I need to stop the interview now.")

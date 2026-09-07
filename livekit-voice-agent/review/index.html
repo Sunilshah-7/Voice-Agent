@@ -14,7 +14,10 @@
         <span class="brand-mark" aria-hidden="true">S</span>
         <span><strong>ShiftSignal</strong><small>Interview review</small></span>
       </a>
-      <div class="local-pill"><span></span> Local artifacts</div>
+      <div class="top-actions">
+        <button id="signals-button" class="signals-button" type="button">Signals overview</button>
+        <div class="local-pill"><span></span> Local intelligence</div>
+      </div>
     </header>
 
     <main class="app-shell">
@@ -37,6 +40,52 @@
           <p class="eyebrow">Evidence before interpretation</p>
           <h2>Select an interview to review</h2>
           <p>Inspect the finding, its supporting turns, objective coverage, and the complete finalized transcript.</p>
+        </div>
+
+        <div id="intelligence-content" class="review-content" hidden>
+          <section class="review-header">
+            <div>
+              <p class="eyebrow">Cross-interview intelligence</p>
+              <h2>Operational signals</h2>
+              <p class="muted">Thresholded patterns with direct links to every supporting interview.</p>
+            </div>
+            <label class="dimension-control">
+              <span>Group by</span>
+              <select id="dimension-select">
+                <option value="department">Department</option>
+                <option value="property_id">Property</option>
+                <option value="role_category">Role category</option>
+                <option value="shift_type">Shift type</option>
+              </select>
+            </label>
+          </section>
+
+          <aside class="scope-note">
+            <strong>Threshold protection is active.</strong>
+            Patterns below three supporting interviews are withheld. Counts describe interviews, not verified incidents or unique employees.
+          </aside>
+
+          <div id="intelligence-facts" class="facts-grid intelligence-facts"></div>
+
+          <section aria-labelledby="trends-title">
+            <div class="section-heading"><div><p class="eyebrow">Recent movement</p><h3 id="trends-title">Emerging and increasing</h3></div></div>
+            <div id="trend-signals" class="signal-grid"></div>
+          </section>
+
+          <section aria-labelledby="issues-title">
+            <div class="section-heading"><div><p class="eyebrow">Repeated evidence</p><h3 id="issues-title">Recurring issues</h3></div></div>
+            <div id="issue-signals" class="signal-grid"></div>
+          </section>
+
+          <section aria-labelledby="practices-title">
+            <div class="section-heading"><div><p class="eyebrow">Transfer candidates</p><h3 id="practices-title">Positive practices</h3></div></div>
+            <div id="practice-signals" class="signal-grid"></div>
+          </section>
+
+          <section aria-labelledby="limits-title">
+            <div class="section-heading"><div><p class="eyebrow">Interpretation guardrails</p><h3 id="limits-title">What these signals do not prove</h3></div></div>
+            <ul id="intelligence-limitations" class="limitations"></ul>
+          </section>
         </div>
 
         <div id="review-content" class="review-content" hidden>

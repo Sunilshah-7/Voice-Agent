@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from dotenv import load_dotenv
@@ -23,6 +24,8 @@ from hospitality_agent import (
     ArtifactWriteError,
     DEFAULT_INTERVIEW_PLAN,
     HospitalityInterviewer,
+    IntelligenceStore,
+    IntelligenceStoreError,
     LiveKitTextGenerator,
     TranscriptRecorder,
     SynthesisError,
@@ -155,6 +158,22 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("Session ended but its artifact could not be written")
             return
         logger.info("Session artifact written: %s", path)
+        database_path = os.getenv(
+            "SHIFT_SIGNAL_DB_PATH",
+            str(recorder.output_dir / "shiftsignal.db"),
+        )
+        try:
+            intelligence = IntelligenceStore(database_path)
+            try:
+                intelligence.index_artifact_file(path)
+            finally:
+                intelligence.close()
+        except IntelligenceStoreError:
+            logger.exception(
+                "Session artifact was saved but could not be indexed for cross-interview review"
+            )
+        else:
+            logger.info("Session indexed for cross-interview review")
 
     ctx.add_shutdown_callback(persist_session)
 

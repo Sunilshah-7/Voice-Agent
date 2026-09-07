@@ -15,10 +15,10 @@ The system is intentionally narrower than a general voice assistant. Every compo
 
 The diagrams distinguish implemented components from planned components. The current
 repository contains the LiveKit voice worker, three hospitality interview plans, shared
-interview state, finalized-turn recorder, local JSON artifact writer, and post-interview
-synthesis step. It does not
-currently contain a separate FastAPI application, Pipecat pipeline, database,
-cross-interview analytics, or cross-interview synthesis service.
+interview state, finalized-turn recorder, local JSON artifact writer, post-interview
+synthesis, transactional SQLite indexing, and thresholded cross-interview review. It does
+not currently contain a separate FastAPI application, Pipecat pipeline, Postgres deployment,
+semantic clustering service, or cross-interview model synthesis.
 
 ### Implemented today
 
@@ -63,6 +63,13 @@ Local read-only review surface
   - session list and categorical context
   - evidence-linked synthesis and coverage
   - finalized transcript
+  - thresholded cross-interview signals
+          |
+          v
+Local SQLite index
+  - idempotent session ingestion
+  - issue and positive-practice signals
+  - supporting session and artifact links
 ```
 
 The transport and provider pipeline are preserved. Milestone 1 adds the hospitality
@@ -294,6 +301,7 @@ livekit-voice-agent/
 │   ├── transcript.py         Final turn capture and session artifact writing (implemented)
 │   ├── synthesis.py          Evidence-grounded extraction and validation (implemented)
 │   ├── review.py             Safe local artifact discovery and loading (implemented)
+│   ├── intelligence.py       SQLite indexing and thresholded aggregation (implemented)
 │   └── models.py             Typed domain and artifact models
 ├── outputs/                  Local-only artifacts; do not commit sensitive data
 └── tests/
@@ -305,8 +313,13 @@ when generation or validation fails.
 
 The review server is a separate local process backed by Python's standard library. It reads
 the same JSON artifacts and exposes only explicit list, detail, and static-asset routes. It
-does not modify artifacts, infer cross-interview trends, or become part of the LiveKit media
-worker.
+does not modify artifacts, use a model to invent aggregate findings, or become part of the
+LiveKit media worker.
+
+Phase 6 adds a transactional SQLite index beside the local artifacts. The worker indexes a
+saved artifact only after JSON persistence succeeds; database failure is observable but does
+not destroy that artifact. The review server also performs idempotent artifact synchronization
+before returning its intelligence snapshot.
 
 ## Storage Evolution
 
@@ -337,7 +350,21 @@ After individual artifacts are reliable, aggregation can identify:
 - transferable positive practices
 - issues whose reported frequency or severity is rising
 
-Every aggregate finding must link back to its supporting interviews. Property comparison also needs minimum-sample thresholds so a single interview is not presented as a meaningful trend.
+The implemented local intelligence layer:
+
+- indexes every session durably, while extracting signals only from completed syntheses
+- groups conservative normalized matches for issues and positive practices
+- withholds any group supported by fewer than three interviews
+- supports grouping by property, department, role category, or shift type
+- labels issues as emerging or increasing only when the recent 30-day window has at least
+  three interviews and exceeds the preceding equal-length window
+- returns supporting session and artifact identifiers for every displayed signal
+
+Counts represent interviews, not unique people or independently verified incidents.
+Normalized matching is intentionally narrower than semantic clustering, so differently
+worded descriptions of the same underlying issue may remain separate. SQLite is appropriate
+for the current local or single-worker topology; multiple deployed workers require Postgres
+or another transactional shared store.
 
 ## Deployment Direction
 

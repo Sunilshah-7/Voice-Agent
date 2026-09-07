@@ -63,6 +63,9 @@ class ReviewStore:
             raise ReviewArtifactError("Session artifact not found")
         return self._read_artifact(path)
 
+    def artifact_paths(self) -> tuple[Path, ...]:
+        return tuple(self._artifact_paths())
+
     def _artifact_paths(self) -> list[Path]:
         if not self.output_dir.is_dir():
             return []

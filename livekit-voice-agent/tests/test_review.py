@@ -7,6 +7,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from hospitality_agent.review import ReviewArtifactError, ReviewStore
+from hospitality_agent.intelligence import IntelligenceStore
 from review_app import ReviewApplication
 
 
@@ -142,6 +143,30 @@ class ReviewApplicationTests(unittest.TestCase):
         response = self.application.handle("POST", "/api/sessions")
 
         self.assertEqual(response.status, HTTPStatus.METHOD_NOT_ALLOWED)
+
+    def test_intelligence_route_syncs_artifacts_and_enforces_grouping(self) -> None:
+        database = IntelligenceStore(Path(self.temp_dir.name) / "review.db")
+        self.addCleanup(database.close)
+        application = ReviewApplication(
+            self.application.store,
+            self.application.static_dir,
+            database,
+        )
+
+        response = application.handle(
+            "GET",
+            "/api/intelligence?group_by=department",
+        )
+        invalid = application.handle(
+            "GET",
+            "/api/intelligence?group_by=employee_name",
+        )
+
+        payload = json.loads(response.body)
+        self.assertEqual(response.status, HTTPStatus.OK)
+        self.assertEqual(payload["indexed_sessions"], 1)
+        self.assertEqual(payload["minimum_sample_size"], 3)
+        self.assertEqual(invalid.status, HTTPStatus.BAD_REQUEST)
 
     def test_static_assets_are_served_from_explicit_routes(self) -> None:
         index = self.application.handle("GET", "/")

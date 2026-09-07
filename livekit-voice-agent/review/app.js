@@ -1,4 +1,4 @@
-const state = { sessions: [], selectedId: null };
+const state = { sessions: [], selectedId: null, mode: "session" };
 
 const $ = (id) => document.getElementById(id);
 const create = (tag, className, text) => {
@@ -77,7 +77,10 @@ function renderSessionList() {
   filtered.forEach((session) => {
     const button = create("button", "session-button");
     button.type = "button";
-    button.classList.toggle("active", session.artifact_id === state.selectedId);
+    button.classList.toggle(
+      "active",
+      state.mode === "session" && session.artifact_id === state.selectedId,
+    );
     button.append(badge(session.status || session.review_status, session.status || session.review_status));
     button.append(create("strong", "", session.plan?.title || "Unreadable artifact"));
     button.append(create("small", "", session.error || dateTime(session.started_at)));
@@ -88,9 +91,12 @@ function renderSessionList() {
 }
 
 async function selectSession(artifactId) {
+  state.mode = "session";
   state.selectedId = artifactId;
+  $("signals-button").classList.remove("active");
   renderSessionList();
   $("empty-state").hidden = true;
+  $("intelligence-content").hidden = true;
   $("review-content").hidden = true;
   try {
     const response = await fetch(`/api/sessions/${encodeURIComponent(artifactId)}`, { cache: "no-store" });
@@ -103,6 +109,89 @@ async function selectSession(artifactId) {
     $("empty-state").querySelector("h2").textContent = "Interview could not be loaded";
     $("empty-state").querySelector("p:last-child").textContent = error.message;
   }
+}
+
+async function loadIntelligence() {
+  state.mode = "intelligence";
+  state.selectedId = null;
+  $("signals-button").classList.add("active");
+  renderSessionList();
+  $("empty-state").hidden = true;
+  $("review-content").hidden = true;
+  $("intelligence-content").hidden = false;
+  const groupBy = $("dimension-select").value;
+  ["trend-signals", "issue-signals", "practice-signals"].forEach((id) => {
+    $(id).replaceChildren(create("div", "empty-panel", "Loading signals…"));
+  });
+  try {
+    const response = await fetch(
+      `/api/intelligence?group_by=${encodeURIComponent(groupBy)}`,
+      { cache: "no-store" },
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not load intelligence");
+    renderIntelligence(payload);
+  } catch (error) {
+    $("trend-signals").replaceChildren(create("div", "empty-panel", error.message));
+    $("issue-signals").replaceChildren();
+    $("practice-signals").replaceChildren();
+  }
+}
+
+function renderIntelligence(snapshot) {
+  const facts = [
+    ["Indexed interviews", snapshot.indexed_sessions],
+    ["Minimum sample", snapshot.minimum_sample_size],
+    ["Qualified issues", snapshot.recurring_issues.length],
+    ["Recent signals", snapshot.trends.length],
+  ];
+  $("intelligence-facts").replaceChildren(...facts.map(([name, value]) => {
+    const card = create("div", "fact");
+    card.append(create("small", "", name), create("strong", "", value));
+    return card;
+  }));
+  renderSignalList("trend-signals", snapshot.trends, true);
+  renderSignalList("issue-signals", snapshot.recurring_issues);
+  renderSignalList("practice-signals", snapshot.positive_practices);
+  $("intelligence-limitations").replaceChildren(
+    ...snapshot.limitations.map((limitation) => create("li", "", limitation)),
+  );
+}
+
+function renderSignalList(containerId, signals, isTrend = false) {
+  const container = $(containerId);
+  container.replaceChildren();
+  if (!signals.length) {
+    container.append(
+      create(
+        "div",
+        "empty-panel",
+        "No signal meets the minimum evidence threshold for this grouping.",
+      ),
+    );
+    return;
+  }
+  signals.forEach((signal) => {
+    const card = create("article", "signal-card");
+    const count = isTrend ? signal.recent_count : signal.sample_size;
+    const status = isTrend ? signal.classification : `${count} interviews`;
+    card.append(badge(status, isTrend ? "partial" : "completed"));
+    card.append(create("h4", "", signal.text));
+    const comparison = isTrend
+      ? `${label(signal.dimension_value)} · ${signal.baseline_count} prior → ${signal.recent_count} recent`
+      : `${label(signal.dimension_value)} · ${count} supporting interviews`;
+    card.append(create("p", "", comparison));
+    const sources = create("div", "source-links");
+    signal.supporting_artifact_ids.forEach((artifactId, index) => {
+      const sessionId = signal.supporting_session_ids[index] || artifactId;
+      const button = create("button", "source-link", sessionId);
+      button.type = "button";
+      button.addEventListener("click", () => selectSession(artifactId));
+      sources.append(button);
+    });
+    card.append(sources);
+    container.append(card);
+  });
 }
 
 function renderArtifact(artifact) {
@@ -243,4 +332,6 @@ function renderTranscript(turns) {
 
 $("refresh-button").addEventListener("click", loadSessions);
 $("session-search").addEventListener("input", renderSessionList);
+$("signals-button").addEventListener("click", loadIntelligence);
+$("dimension-select").addEventListener("change", loadIntelligence);
 loadSessions();

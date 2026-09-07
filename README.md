@@ -37,7 +37,7 @@ The runnable application is in `livekit-voice-agent/`. It currently provides:
 - per-session latency and usage metrics
 - a Docker image and LiveKit project configuration
 
-Milestones 1 through 4 are implemented. The generic assistant has been replaced with a
+Milestones 1 through 6 are implemented. The generic assistant has been replaced with a
 hospitality interviewer, a versioned post-shift plan, explicit objective coverage, turn
 and time budgets, and controlled handling for skips, corrections, early exits, and
 sensitive disclosures. Finalized conversation turns, evidence links, completion state,
@@ -51,6 +51,9 @@ The same interviewer architecture now supports three versioned hospitality plans
 - `post_shift_guest_experience` (default)
 - `new_process_rollout`
 - `recurring_service_breakdown`
+
+Completed artifacts are also indexed idempotently into a local SQLite database for
+thresholded cross-interview review. JSON remains the per-session recovery artifact.
 
 ## Target Interview
 
@@ -190,6 +193,22 @@ links jump to their finalized transcript turns, superseded evidence remains dist
 and the page consistently labels each result as one respondent's perspective. The server
 provides no mutation or deletion endpoint and binds to localhost unless explicitly changed.
 
+Use **Signals overview** to review recurring operational issues, emerging or increasing
+issues, and repeated positive practices. Grouping is available by property, department,
+role category, or shift. Every displayed signal requires at least three supporting
+interviews and links back to those sessions. Groups with fewer interviews are withheld.
+
+The SQLite database defaults to `outputs/shiftsignal.db`. Override it when needed:
+
+```bash
+SHIFT_SIGNAL_DB_PATH=/path/to/shiftsignal.db uv run review_app.py
+```
+
+This implementation deliberately groups only normalized matching finding text. It does not
+perform semantic clustering, identify unique employees, verify that reported events are
+separate incidents, or support multi-worker shared writes. Use Postgres or another
+transactional shared database before deploying multiple agent workers.
+
 ## Build Order
 
 1. Replace the generic assistant with the hospitality interview policy.
@@ -198,8 +217,8 @@ provides no mutation or deletion endpoint and binds to localhost unless explicit
 4. Generate an evidence-grounded structured summary. **Implemented.**
 5. Add additional hospitality interview templates. **Implemented.**
 6. Build a small transcript-and-insight review surface. **Implemented.**
-7. Aggregate recurring signals across interviews, shifts, departments, and properties.
-8. Add durable storage, anonymous links or QR access, retention controls, and deployment hardening.
+7. Aggregate recurring signals across interviews, shifts, departments, and properties. **Implemented for the local single-worker prototype.**
+8. Add shared multi-worker storage, anonymous links or QR access, retention controls, and deployment hardening.
 
 Phone entry, a separate application API, and a full analytics product are later options. They are not dependencies for proving the first LiveKit hospitality interview.
 

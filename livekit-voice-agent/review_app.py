@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
+from hospitality_agent.intelligence import IntelligenceStore
 from hospitality_agent.review import ReviewArtifactError, ReviewStore
 
 
@@ -25,9 +26,15 @@ class Response:
 
 
 class ReviewApplication:
-    def __init__(self, store: ReviewStore, static_dir: str | Path = STATIC_DIR) -> None:
+    def __init__(
+        self,
+        store: ReviewStore,
+        static_dir: str | Path = STATIC_DIR,
+        intelligence: IntelligenceStore | None = None,
+    ) -> None:
         self.store = store
         self.static_dir = Path(static_dir)
+        self.intelligence = intelligence
         self.static_files = {
             "/": ("index.html", "text/html; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -37,9 +44,24 @@ class ReviewApplication:
     def handle(self, method: str, target: str) -> Response:
         if method not in {"GET", "HEAD"}:
             return self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Method not allowed"})
-        path = urlsplit(target).path
+        parsed = urlsplit(target)
+        path = parsed.path
         if path == "/api/sessions":
             return self._json(HTTPStatus.OK, {"sessions": self.store.list_sessions()})
+        if path == "/api/intelligence":
+            if self.intelligence is None:
+                return self._json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Cross-interview intelligence is unavailable"},
+                )
+            group_by = parse_qs(parsed.query).get("group_by", ["department"])[0]
+            sync = self.intelligence.sync_artifact_files(self.store.artifact_paths())
+            try:
+                snapshot = self.intelligence.intelligence_snapshot(group_by=group_by)
+            except ValueError as exc:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            snapshot["artifact_sync"] = sync
+            return self._json(HTTPStatus.OK, snapshot)
         if path.startswith("/api/sessions/"):
             artifact_id = unquote(path.removeprefix("/api/sessions/"))
             try:
@@ -113,8 +135,18 @@ def main() -> None:
         "--output-dir",
         default=os.getenv("SHIFT_SIGNAL_OUTPUT_DIR", "outputs"),
     )
+    parser.add_argument(
+        "--database",
+        default=os.getenv("SHIFT_SIGNAL_DB_PATH"),
+        help="SQLite path; defaults to <output-dir>/shiftsignal.db",
+    )
     args = parser.parse_args()
-    application = ReviewApplication(ReviewStore(args.output_dir))
+    database_path = args.database or str(Path(args.output_dir) / "shiftsignal.db")
+    intelligence = IntelligenceStore(database_path)
+    application = ReviewApplication(
+        ReviewStore(args.output_dir),
+        intelligence=intelligence,
+    )
     server = ThreadingHTTPServer((args.host, args.port), handler_for(application))
     print(f"ShiftSignal review: http://{args.host}:{args.port}")
     print(f"Reading artifacts from: {Path(args.output_dir).resolve()}")
@@ -124,6 +156,7 @@ def main() -> None:
         print("\nStopping review server")
     finally:
         server.server_close()
+        intelligence.close()
 
 
 if __name__ == "__main__":

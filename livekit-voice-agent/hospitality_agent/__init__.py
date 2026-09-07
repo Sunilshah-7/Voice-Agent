@@ -1,6 +1,7 @@
 """Hospitality interview behavior for the ShiftSignal LiveKit agent."""
 
 from .interviewer import HospitalityInterviewer
+from .intelligence import IntelligenceStore, IntelligenceStoreError
 from .models import RespondentContext
 from .plans import (
     DEFAULT_INTERVIEW_PLAN,
@@ -25,6 +26,8 @@ from .transcript import (
 
 __all__ = [
     "HospitalityInterviewer",
+    "IntelligenceStore",
+    "IntelligenceStoreError",
     "InterviewState",
     "DEFAULT_INTERVIEW_PLAN",
     "INTERVIEW_PLANS",

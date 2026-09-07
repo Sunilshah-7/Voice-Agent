@@ -184,6 +184,18 @@ The review surface should make evidence inspection easier. It should not imply t
 
 ## Milestone 6: Cross-Interview Intelligence
 
+**Status: implemented and locally validated for a single-worker prototype.** Completed
+session artifacts are idempotently indexed in SQLite after JSON persistence. The review
+surface groups recurring issues and positive practices by permitted categorical dimensions,
+detects emerging or increasing issue counts across equal 30-day windows, enforces a minimum
+of three supporting interviews, and retains links to every supporting session and artifact.
+Deterministic tests cover threshold suppression, property isolation, trends, idempotent
+correction, failed synthesis, database reopen, and invalid dimensions.
+
+Grouping currently uses conservative normalized finding text rather than semantic
+clustering. Counts represent interviews rather than unique employees or verified incidents.
+SQLite is durable for the local/single-worker topology, not shared multi-worker deployment.
+
 After individual artifacts are trustworthy:
 
 - group recurring issues across property, department, role, and shift

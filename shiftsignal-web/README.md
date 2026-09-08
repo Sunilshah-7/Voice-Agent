@@ -1,4 +1,4 @@
-# Agent Starter for React
+# ShiftSignal Web Interview
 
 This is a starter template for [LiveKit Agents](https://docs.livekit.io/agents) that provides a simple voice interface using [Agents UI](https://livekit.io/ui) components and [LiveKit JavaScript SDK](https://github.com/livekit/client-sdk-js). It supports [voice](https://docs.livekit.io/agents/start/voice-ai), [transcriptions](https://docs.livekit.io/agents/build/text/), and [virtual avatars](https://docs.livekit.io/agents/integrations/avatar).
 
@@ -132,6 +132,25 @@ AGENT_NAME=
 ```
 
 These are required for the voice agent functionality to work with your LiveKit project.
+
+### Authentication
+
+The interview and `/api/token` endpoint require a signed-in Clerk user. Add the following
+values from your Clerk application's API keys page to `.env.local`:
+
+```env
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+```
+
+Email sign-in methods and social providers are controlled in the Clerk Dashboard. Enable
+email plus Google and GitHub under **SSO connections**, with **Enable for sign-up and
+sign-in** selected. Clerk development instances can use shared OAuth credentials; production
+instances should use each provider's production OAuth credentials and callback settings.
+
+After starting the app, visiting `http://localhost:3000` while signed out redirects to
+`/sign-in`. A successful email, Google, or GitHub login returns to the interview. The account
+menu in the upper-right provides profile and sign-out actions.
 
 ## Contributing
 

@@ -1,5 +1,7 @@
 import { Public_Sans } from 'next/font/google';
 import localFont from 'next/font/local';
+import Link from 'next/link';
+import { ClerkProvider, UserButton } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/app/theme-provider';
 import { ThemeToggle } from '@/components/app/theme-toggle';
 import { cn } from '@/lib/shadcn/utils';
@@ -43,61 +45,57 @@ interface RootLayoutProps {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={cn(
-        publicSans.variable,
-        commitMono.variable,
-        'scroll-smooth font-sans antialiased'
-      )}
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
     >
-      <head>
-        <title>LiveKit Voice Agent</title>
-        <meta name="description" content="A voice agent built with LiveKit" />
-      </head>
-      <body className="overflow-x-hidden">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <header className="fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex">
-            <a
-              target="_blank"
-              rel="noopener noreferrer"
-              href="https://livekit.io"
-              className="scale-100 transition-transform duration-300 hover:scale-110"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/lk-logo.svg" alt="LiveKit Logo" className="block size-6 dark:hidden" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/lk-logo-dark.svg"
-                alt="LiveKit Logo"
-                className="hidden size-6 dark:block"
-              />
-            </a>
-            <span className="text-foreground font-mono text-xs font-bold tracking-wider uppercase">
-              Built with{' '}
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://docs.livekit.io/agents"
-                className="underline underline-offset-4"
+      <html
+        lang="en"
+        suppressHydrationWarning
+        className={cn(
+          publicSans.variable,
+          commitMono.variable,
+          'scroll-smooth font-sans antialiased'
+        )}
+      >
+        <head>
+          <title>ShiftSignal Interview</title>
+          <meta
+            name="description"
+            content="A private, AI-guided post-shift hospitality interview"
+          />
+        </head>
+        <body className="overflow-x-hidden">
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <header className="fixed top-0 left-0 z-50 flex w-full items-center justify-between p-4 md:p-6">
+              <Link
+                href="/"
+                className="text-foreground font-mono text-sm font-bold tracking-wider uppercase"
               >
-                LiveKit Agents
-              </a>
-            </span>
-          </header>
+                ShiftSignal
+              </Link>
+              <div className="flex items-center gap-4">
+                <span className="text-muted-foreground hidden font-mono text-xs tracking-wider uppercase md:inline">
+                  Staff interview prototype
+                </span>
+                <UserButton />
+              </div>
+            </header>
 
-          {children}
-          <div className="group fixed bottom-0 left-1/2 z-50 mb-2 -translate-x-1/2">
-            <ThemeToggle className="translate-y-20 transition-transform delay-150 duration-300 group-hover:translate-y-0" />
-          </div>
-        </ThemeProvider>
-      </body>
-    </html>
+            {children}
+            <div className="group fixed bottom-0 left-1/2 z-50 mb-2 -translate-x-1/2">
+              <ThemeToggle className="translate-y-20 transition-transform delay-150 duration-300 group-hover:translate-y-0" />
+            </div>
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

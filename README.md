@@ -4,7 +4,6 @@ ShiftSignal is a LiveKit voice-agent prototype for short, natural hospitality in
 
 The first use case is a **post-shift guest-experience debrief** with hotel employees such as front-desk associates, housekeepers, restaurant staff, maintenance technicians, guest-services employees, and shift supervisors.
 
-This is an independent prototype inspired by the operational-listening problem described by Arbor. It is not an Arbor product or a reproduction of Arbor's platform.
 
 ## Product Thesis
 

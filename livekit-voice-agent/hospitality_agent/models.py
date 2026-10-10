@@ -32,3 +32,21 @@ class CompletionReason(StrEnum):
 class ArtifactStatus(StrEnum):
     COMPLETED = "completed"
     INCOMPLETE = "incomplete"
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchObjective:
+    id: str
+    goal: str
+    evidence_needed: str
+    suggested_probes: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class EvidenceNote:
+    id: str
+    objective_id: str
+    summary: str
+    source_turn_id: str | None = None
+    active: bool = True
+    superseded_by: str | None = None

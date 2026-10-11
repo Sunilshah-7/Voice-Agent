@@ -88,3 +88,26 @@ class InterviewState:
             if self.coverage[objective.id]
             in {ObjectiveStatus.NOT_STARTED, ObjectiveStatus.PARTIAL}
         )
+
+    @property
+    def should_confirm(self) -> bool:
+        core_resolved = all(
+            self.coverage[objective_id]
+            in {ObjectiveStatus.SUFFICIENT, ObjectiveStatus.SKIPPED}
+            for objective_id in self.plan.core_objective_ids
+        )
+        return core_resolved and not self.uncovered_objective_ids
+
+    def start_interview(self) -> None:
+        if self.phase == InterviewPhase.OPENING:
+            self.started_at = self.clock()
+            self.phase = InterviewPhase.INTERVIEWING
+
+    def mark_question_asked(self, objective_id: str) -> None:
+        self.plan.objective(objective_id)
+        if self.coverage[objective_id] not in {
+            ObjectiveStatus.NOT_STARTED,
+            ObjectiveStatus.PARTIAL,
+        }:
+            raise ValueError(f"Objective is already resolved: {objective_id}")
+        self.asked_objective_id = objective_id

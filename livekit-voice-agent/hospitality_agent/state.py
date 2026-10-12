@@ -139,3 +139,30 @@ class InterviewState:
                 kind="early_exit",
                 instruction="Respect the request immediately. Do not ask another question; give the closing only.",
             )
+
+        if self.respondent_turns >= self.plan.max_respondent_turns:
+            self.phase = InterviewPhase.CONFIRMATION
+            self.completion_reason = CompletionReason.TURN_LIMIT
+            return TurnDecision(
+                kind="turn_limit",
+                instruction="The turn budget is exhausted. Briefly confirm the main finding, then close.",
+            )
+
+        if self.elapsed_seconds >= self.plan.target_duration_seconds:
+            self.phase = InterviewPhase.CONFIRMATION
+            self.completion_reason = CompletionReason.TIME_LIMIT
+            return TurnDecision(
+                kind="time_limit",
+                instruction="The time budget is exhausted. Briefly confirm the main finding, then close.",
+            )
+
+        if self._matches(_CORRECTION_PATTERNS, normalized):
+            self.corrections += 1
+            return TurnDecision(
+                kind="correction",
+                instruction=(
+                    "Accept the correction without defensiveness, use the corrected information, "
+                    "call correct_objective_evidence for every affected objective, and ask at "
+                    "most one necessary follow-up."
+                ),
+            )

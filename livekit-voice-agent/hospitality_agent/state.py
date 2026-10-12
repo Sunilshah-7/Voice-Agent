@@ -166,3 +166,101 @@ class InterviewState:
                     "most one necessary follow-up."
                 ),
             )
+
+        if self._matches(_SKIP_PATTERNS, normalized):
+            skipped = self.asked_objective_id or self.current_objective_id
+            if skipped is not None:
+                self.coverage[skipped] = ObjectiveStatus.SKIPPED
+            self.asked_objective_id = None
+            if not self.uncovered_objective_ids:
+                self.phase = InterviewPhase.CONFIRMATION
+            return TurnDecision(
+                kind="skip",
+                instruction="Honor the skip without asking why. Move to the most useful uncovered objective.",
+            )
+
+        return TurnDecision(
+            kind="continue",
+            instruction="Continue with one useful probe or the most useful uncovered objective.",
+        )
+
+    def record_evidence(
+        self,
+        objective_id: str,
+        summary: str,
+        *,
+        sufficient: bool,
+        source_turn_id: str | None = None,
+    ) -> EvidenceNote:
+        self.plan.objective(objective_id)
+        cleaned = " ".join(summary.split())
+        if not cleaned:
+            raise ValueError("Evidence summary cannot be empty")
+        note = EvidenceNote(
+            id=f"{objective_id}:{len(self.evidence_notes[objective_id]) + 1}",
+            objective_id=objective_id,
+            summary=cleaned,
+            source_turn_id=source_turn_id,
+        )
+        self.evidence_notes[objective_id].append(note)
+        self.coverage[objective_id] = (
+            ObjectiveStatus.SUFFICIENT if sufficient else ObjectiveStatus.PARTIAL
+        )
+        if self.should_confirm:
+            self.phase = InterviewPhase.CONFIRMATION
+        return note
+
+    def correct_evidence(
+        self,
+        objective_id: str,
+        corrected_summary: str,
+        *,
+        sufficient: bool,
+        source_turn_id: str | None = None,
+    ) -> EvidenceNote:
+        self.plan.objective(objective_id)
+        active_notes = [note for note in self.evidence_notes[objective_id] if note.active]
+        replacement = self.record_evidence(
+            objective_id,
+            corrected_summary,
+            sufficient=sufficient,
+            source_turn_id=source_turn_id,
+        )
+        for note in active_notes:
+            note.active = False
+            note.superseded_by = replacement.id
+        return replacement
+
+    def active_evidence(self, objective_id: str) -> tuple[EvidenceNote, ...]:
+        self.plan.objective(objective_id)
+        return tuple(note for note in self.evidence_notes[objective_id] if note.active)
+
+    def begin_confirmation(self, main_finding: str) -> None:
+        if self.phase != InterviewPhase.CONFIRMATION and not self.should_confirm:
+            raise ValueError("Interview objectives are not resolved and the budget is not exhausted")
+        cleaned = " ".join(main_finding.split())
+        if not cleaned:
+            raise ValueError("Main finding cannot be empty")
+        self.main_finding = cleaned
+        self.phase = InterviewPhase.CONFIRMATION
+
+    def complete(self) -> None:
+        if self.completion_reason is None:
+            self.completion_reason = CompletionReason.OBJECTIVES_COVERED
+        self.phase = InterviewPhase.COMPLETED
+
+    def prompt_snapshot(self) -> str:
+        coverage = ", ".join(
+            f"{objective.id}={self.coverage[objective.id].value}"
+            for objective in self.plan.objectives
+        )
+        return (
+            f"phase={self.phase.value}; respondent_turns={self.respondent_turns}/"
+            f"{self.plan.max_respondent_turns}; coverage=[{coverage}]; "
+            f"current_objective={self.current_objective_id or 'none'}; "
+            f"asked_objective={self.asked_objective_id or 'none'}"
+        )
+
+    @staticmethod
+    def _matches(patterns: tuple[re.Pattern[str], ...], text: str) -> bool:
+        return any(pattern.search(text) for pattern in patterns)

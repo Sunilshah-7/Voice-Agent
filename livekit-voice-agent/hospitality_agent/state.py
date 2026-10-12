@@ -111,3 +111,31 @@ class InterviewState:
         }:
             raise ValueError(f"Objective is already resolved: {objective_id}")
         self.asked_objective_id = objective_id
+
+    def observe_respondent_turn(self, text: str) -> TurnDecision:
+        """Apply deterministic safety and budget transitions before the LLM responds."""
+        self.start_interview()
+        self.respondent_turns += 1
+        normalized = " ".join(text.split())
+
+        if self._matches(_SENSITIVE_PATTERNS, normalized):
+            self.sensitive_disclosure = True
+            self.phase = InterviewPhase.CLOSING
+            self.completion_reason = CompletionReason.SENSITIVE_DISCLOSURE
+            return TurnDecision(
+                kind="sensitive_disclosure",
+                instruction=(
+                    "Acknowledge the concern neutrally. Do not investigate, ask for names, "
+                    "or promise an outcome. Say that urgent danger should go to local emergency "
+                    "services and other concerns should go to the organization's configured "
+                    "human reporting channel. Then end the interview."
+                ),
+            )
+
+        if self._matches(_END_PATTERNS, normalized):
+            self.phase = InterviewPhase.CLOSING
+            self.completion_reason = CompletionReason.RESPONDENT_ENDED
+            return TurnDecision(
+                kind="early_exit",
+                instruction="Respect the request immediately. Do not ask another question; give the closing only.",
+            )

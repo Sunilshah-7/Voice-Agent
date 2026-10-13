@@ -33,3 +33,13 @@ class HospitalityInterviewer(Agent):
             allow_interruptions=True,
             add_to_chat_ctx=True,
         )
+
+    async def on_user_turn_completed(
+        self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
+    ) -> None:
+        del turn_ctx
+        if self.recorder is not None:
+            self.recorder.record_chat_message(new_message)
+        decision = self.interview_state.observe_respondent_turn(new_message.text_content or "")
+        self._turn_instruction = decision.instruction
+        await self.update_instructions(self._build_instructions())

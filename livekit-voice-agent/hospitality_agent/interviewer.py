@@ -95,3 +95,45 @@ class HospitalityInterviewer(Agent):
         if self.interview_state.phase == InterviewPhase.CONFIRMATION:
             return "All supported evidence recorded. The plan is resolved; confirm the main finding next."
         return f"All supported evidence recorded. The next uncovered objective is {current}."
+
+    @llm.function_tool
+    async def correct_objective_evidence(
+        self,
+        objective_id: str,
+        corrected_summary: str,
+        sufficient: bool,
+    ) -> str:
+        """Replace stale evidence when the respondent corrects an earlier statement.
+
+        Args:
+            objective_id: Exact identifier for an objective affected by the correction.
+            corrected_summary: Factual replacement based only on the correction.
+            sufficient: True only when the corrected evidence needs no follow-up.
+        """
+        try:
+            replacement = self.interview_state.correct_evidence(
+                objective_id,
+                corrected_summary,
+                sufficient=sufficient,
+                source_turn_id=(
+                    self.recorder.latest_respondent_turn_id if self.recorder else None
+                ),
+            )
+        except ValueError as exc:
+            return f"Correction was not recorded: {exc}."
+        await self.update_instructions(self._build_instructions())
+        return f"Correction recorded as {replacement.id}; earlier evidence is superseded."
+
+    @llm.function_tool
+    async def select_next_objective(self, objective_id: str) -> str:
+        """Bind the next spoken research question to one unresolved objective.
+
+        Args:
+            objective_id: Exact unresolved objective identifier the next question will address.
+        """
+        try:
+            self.interview_state.mark_question_asked(objective_id)
+        except ValueError as exc:
+            return f"Do not ask that question: {exc}. Choose an unresolved objective."
+        await self.update_instructions(self._build_instructions())
+        return f"Ask one concise question for {objective_id}, using facts already provided."

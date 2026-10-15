@@ -54,6 +54,30 @@ POST_SHIFT_GUEST_EXPERIENCE = InterviewPlan(
             evidence_needed="The respondent's own description of frequency; never invent a number.",
             suggested_probes=("Was this unusual, or have you seen it before?",),
         ),
+        ResearchObjective(
+            id="impact",
+            goal="Capture the consequence for guests and staff.",
+            evidence_needed="A concrete observed or reported effect, clearly distinguished from inference.",
+            suggested_probes=("How did that affect the guest or your team?",),
+        ),
+        ResearchObjective(
+            id="workaround",
+            goal="Capture how staff currently handle the problem.",
+            evidence_needed="A workaround, escalation, or a clear statement that none exists.",
+            suggested_probes=("What did the team do in the moment?",),
+        ),
+        ResearchObjective(
+            id="improvement",
+            goal="Ask for one realistically scoped improvement.",
+            evidence_needed="A respondent-proposed change, or a clear statement that they do not know.",
+            suggested_probes=("What is one change that could make this work better?",),
+        ),
+        ResearchObjective(
+            id="positive_practice",
+            goal="Capture something the team handled well.",
+            evidence_needed="A useful positive practice, or a clear statement that none comes to mind.",
+            suggested_probes=("What did your team handle especially well?",),
+        ),
     ),
     core_objective_ids=("primary_event", "impact", "improvement"),
 )

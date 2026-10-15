@@ -81,3 +81,55 @@ POST_SHIFT_GUEST_EXPERIENCE = InterviewPlan(
     ),
     core_objective_ids=("primary_event", "impact", "improvement"),
 )
+
+
+NEW_PROCESS_ROLLOUT = InterviewPlan(
+    id="new_process_rollout",
+    version="1.0",
+    title="New process or training rollout check-in",
+    business_goal=(
+        "Understand how a new hospitality process or training is working in practice, "
+        "where staff need support, and which small adjustment should be reviewed."
+    ),
+    respondent_type="Hotel employee affected by a recent process or training change",
+    target_duration_seconds=360,
+    max_respondent_turns=12,
+    opening_message=(
+        "Hi, I'm ShiftSignal, an AI interviewer. I'd like to understand how the new "
+        "process or training is working during real shifts. This is not a performance "
+        "evaluation. Please don't share guest names, room numbers, or coworkers' names. "
+        "You can skip any question or stop at any time. To begin, what changed in your "
+        "work, and how has it gone so far?"
+    ),
+    closing_message=(
+        "Thank you for sharing that. Your experience will be reviewed as feedback, "
+        "but I can't promise a particular action or outcome."
+    ),
+    objectives=(
+        ResearchObjective(
+            id="rollout_experience",
+            goal="Establish which change the respondent experienced and how it works in practice.",
+            evidence_needed="A concrete process or training change and a real shift example.",
+            suggested_probes=("Could you walk me through using it during a shift?",),
+        ),
+        ResearchObjective(
+            id="expectation_clarity",
+            goal="Understand whether the new expectations were clear.",
+            evidence_needed="What the respondent understood, including any uncertain step.",
+            suggested_probes=("Which part felt clear or unclear?",),
+        ),
+        ResearchObjective(
+            id="preparedness",
+            goal="Learn whether training, tools, and access prepared staff for the change.",
+            evidence_needed="Observed readiness or a specific missing resource.",
+            suggested_probes=("What helped you feel prepared?",),
+        ),
+        ResearchObjective(
+            id="workflow_effect",
+            goal="Capture how the change affects the guest-facing workflow.",
+            evidence_needed="A concrete effect on timing, handoffs, consistency, guests, or staff.",
+            suggested_probes=("How did it affect the shift or guest experience?",),
+        ),
+    ),
+    core_objective_ids=("rollout_experience", "workflow_effect", "improvement"),
+)

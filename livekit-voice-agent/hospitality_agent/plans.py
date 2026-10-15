@@ -130,6 +130,34 @@ NEW_PROCESS_ROLLOUT = InterviewPlan(
             evidence_needed="A concrete effect on timing, handoffs, consistency, guests, or staff.",
             suggested_probes=("How did it affect the shift or guest experience?",),
         ),
+        ResearchObjective(
+            id="friction",
+            goal="Identify where the new process is difficult to apply.",
+            evidence_needed=(
+                "A specific point of friction, or a clear report that none was encountered."
+            ),
+            suggested_probes=("Where does the process become difficult to follow?",),
+        ),
+        ResearchObjective(
+            id="support_or_workaround",
+            goal="Capture support used or workarounds created by staff.",
+            evidence_needed=(
+                "A support path, workaround, or clear statement that neither was needed."
+            ),
+            suggested_probes=("What do you do when that happens?",),
+        ),
+        ResearchObjective(
+            id="improvement",
+            goal="Ask for one realistically scoped rollout adjustment.",
+            evidence_needed="A respondent-proposed adjustment, or a clear statement of uncertainty.",
+            suggested_probes=("What one adjustment would make this easier to use?",),
+        ),
+        ResearchObjective(
+            id="positive_practice",
+            goal="Capture one part of the rollout worth retaining.",
+            evidence_needed="A useful element to preserve, or a clear statement that none comes to mind.",
+            suggested_probes=("What part should stay as it is?",),
+        ),
     ),
     core_objective_ids=("rollout_experience", "workflow_effect", "improvement"),
 )

@@ -161,3 +161,63 @@ NEW_PROCESS_ROLLOUT = InterviewPlan(
     ),
     core_objective_ids=("rollout_experience", "workflow_effect", "improvement"),
 )
+
+
+RECURRING_SERVICE_BREAKDOWN = InterviewPlan(
+    id="recurring_service_breakdown",
+    version="1.0",
+    title="Recurring service-breakdown investigation",
+    business_goal=(
+        "Understand a recurring hospitality service breakdown, its observed conditions "
+        "and impact, and a proportionate next step for review or testing."
+    ),
+    respondent_type="Hotel employee familiar with a recurring service problem",
+    target_duration_seconds=420,
+    max_respondent_turns=14,
+    opening_message=(
+        "Hi, I'm ShiftSignal, an AI interviewer. I'd like to understand a recurring "
+        "service problem from your firsthand experience. This is not a performance "
+        "evaluation or an investigation of individuals. Please don't share guest names, "
+        "room numbers, or coworkers' names. You can skip any question or stop at any "
+        "time. To begin, what service problem have you seen happen more than once?"
+    ),
+    closing_message=(
+        "Thank you for sharing that. Your experience will be reviewed as feedback, "
+        "but I can't promise a particular action or outcome."
+    ),
+    objectives=(
+        ResearchObjective(
+            id="breakdown_event",
+            goal="Define the recurring service breakdown using a firsthand example.",
+            evidence_needed="A concrete observed event rather than a general accusation.",
+            suggested_probes=("What happened in the most recent example?",),
+        ),
+        ResearchObjective(
+            id="journey_stage",
+            goal="Locate the breakdown in the guest journey or operational handoff.",
+            evidence_needed="The service moment, system step, or handoff involved.",
+            suggested_probes=("Where in the service process does it occur?",),
+        ),
+        ResearchObjective(
+            id="observed_conditions",
+            goal="Capture conditions present when the breakdown occurs without assigning blame.",
+            evidence_needed="Firsthand conditions separated from inferred causes.",
+            suggested_probes=("What conditions have you noticed when it happens?",),
+        ),
+        ResearchObjective(
+            id="recurrence",
+            goal="Preserve how often and under what circumstances it recurs.",
+            evidence_needed=(
+                "The respondent's wording about frequency or pattern; never an invented number."
+            ),
+            suggested_probes=("When have you seen it happen again?",),
+        ),
+        ResearchObjective(
+            id="impact",
+            goal="Capture the observed effect on guests, staff, or service delivery.",
+            evidence_needed="A specific consequence grounded in the respondent's experience.",
+            suggested_probes=("What happens to guests or the team when it occurs?",),
+        ),
+    ),
+    core_objective_ids=("breakdown_event", "impact", "improvement"),
+)

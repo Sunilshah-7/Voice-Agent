@@ -245,3 +245,43 @@ RECURRING_SERVICE_BREAKDOWN = InterviewPlan(
     ),
     core_objective_ids=("breakdown_event", "impact", "improvement"),
 )
+
+
+INTERVIEW_PLANS: dict[str, InterviewPlan] = {
+    plan.id: plan
+    for plan in (
+        POST_SHIFT_GUEST_EXPERIENCE,
+        NEW_PROCESS_ROLLOUT,
+        RECURRING_SERVICE_BREAKDOWN,
+    )
+}
+DEFAULT_INTERVIEW_PLAN = POST_SHIFT_GUEST_EXPERIENCE
+
+
+def get_interview_plan(plan_id: str | None) -> InterviewPlan:
+    """Return a known versioned plan; never silently substitute an unknown ID."""
+    if plan_id is None:
+        return DEFAULT_INTERVIEW_PLAN
+    normalized = plan_id.strip()
+    if not normalized:
+        return DEFAULT_INTERVIEW_PLAN
+    try:
+        return INTERVIEW_PLANS[normalized]
+    except KeyError as exc:
+        raise ValueError(f"Unknown interview plan: {normalized}") from exc
+
+
+def interview_plan_from_job_metadata(raw_metadata: str | None) -> InterviewPlan:
+    """Select a plan from the optional top-level LiveKit metadata field."""
+    if not raw_metadata:
+        return DEFAULT_INTERVIEW_PLAN
+    try:
+        payload = json.loads(raw_metadata)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LiveKit job metadata must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("LiveKit job metadata must be a JSON object")
+    plan_id = payload.get("interview_plan_id")
+    if plan_id is not None and not isinstance(plan_id, str):
+        raise ValueError("interview_plan_id must be a string")
+    return get_interview_plan(plan_id)

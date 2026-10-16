@@ -218,6 +218,30 @@ RECURRING_SERVICE_BREAKDOWN = InterviewPlan(
             evidence_needed="A specific consequence grounded in the respondent's experience.",
             suggested_probes=("What happens to guests or the team when it occurs?",),
         ),
+        ResearchObjective(
+            id="workaround",
+            goal="Understand how staff currently contain or recover from the breakdown.",
+            evidence_needed="A workaround, escalation, or clear statement that none exists.",
+            suggested_probes=("How do you manage it in the moment?",),
+        ),
+        ResearchObjective(
+            id="prior_response",
+            goal="Learn what has already been tried without asking who was responsible.",
+            evidence_needed="A process change or prior response and its observed result.",
+            suggested_probes=("What has already been tried, and what happened?",),
+        ),
+        ResearchObjective(
+            id="improvement",
+            goal="Ask for one realistically scoped next step.",
+            evidence_needed="A review, investigation, or pilot suggested by the respondent.",
+            suggested_probes=("What small next step would be worth testing?",),
+        ),
+        ResearchObjective(
+            id="positive_practice",
+            goal="Capture a recovery practice worth retaining.",
+            evidence_needed="A useful practice, or a clear statement that none comes to mind.",
+            suggested_probes=("What has the team done well when recovering?",),
+        ),
     ),
     core_objective_ids=("breakdown_event", "impact", "improvement"),
 )

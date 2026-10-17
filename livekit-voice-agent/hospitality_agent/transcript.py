@@ -157,3 +157,51 @@ class TranscriptRecorder:
             "synthesis": dict(synthesis or {"status": "not_run"}),
             "usage": dict(usage or {}),
         }
+
+    def finalize(
+        self,
+        state: InterviewState,
+        *,
+        usage: Mapping[str, int | float] | None = None,
+        synthesis: Mapping[str, object] | None = None,
+    ) -> Path:
+        if self._finalized_path is not None:
+            return self._finalized_path
+
+        artifact = self.build_artifact(state, usage=usage, synthesis=synthesis)
+        final_path = self.output_dir / self._artifact_filename()
+        temp_path: Path | None = None
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.output_dir,
+                prefix=".shift-signal-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                json.dump(artifact, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, final_path)
+        except OSError as exc:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise ArtifactWriteError(
+                f"Could not write session artifact to {final_path}: {exc}"
+            ) from exc
+
+        self._finalized_path = final_path
+        return final_path
+
+    def _artifact_filename(self) -> str:
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "-", self.session_id).strip("-.")
+        safe = safe[:48] or "session"
+        digest = hashlib.sha256(self.session_id.encode("utf-8")).hexdigest()[:8]
+        return f"session-{safe}-{digest}.json"

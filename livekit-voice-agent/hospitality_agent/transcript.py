@@ -98,3 +98,62 @@ class TranscriptRecorder:
         if provider_item_id:
             self._provider_turns[provider_item_id] = turn
         return turn
+
+    def set_close(self, reason: object, *, created_at: float | None = None) -> None:
+        self.close_reason = getattr(reason, "value", str(reason))
+        self.ended_at = float(created_at if created_at is not None else self.clock())
+
+    def build_artifact(
+        self,
+        state: InterviewState,
+        *,
+        usage: Mapping[str, int | float] | None = None,
+        synthesis: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        status = (
+            ArtifactStatus.COMPLETED
+            if state.phase.value == ArtifactStatus.COMPLETED.value
+            else ArtifactStatus.INCOMPLETE
+        )
+        context = {
+            key: value
+            for key, value in asdict(self.respondent_context).items()
+            if value is not None
+        }
+        coverage = []
+        for objective in self.plan.objectives:
+            coverage.append(
+                {
+                    "objective_id": objective.id,
+                    "status": state.coverage[objective.id].value,
+                    "evidence": [asdict(note) for note in state.evidence_notes[objective.id]],
+                }
+            )
+
+        return {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "session": {
+                "id": self.session_id,
+                "status": status.value,
+                "interview_phase": state.phase.value,
+                "started_at": self.started_at,
+                "ended_at": self.ended_at,
+                "artifact_created_at": float(self.clock()),
+                "completion_reason": (
+                    state.completion_reason.value if state.completion_reason else None
+                ),
+                "close_reason": self.close_reason,
+                "respondent_turns": state.respondent_turns,
+                "transcript_turns": len(self.turns),
+            },
+            "interview_plan": {
+                "id": self.plan.id,
+                "version": self.plan.version,
+                "title": self.plan.title,
+            },
+            "respondent_context": context,
+            "transcript": [asdict(turn) for turn in self.turns],
+            "objective_coverage": coverage,
+            "synthesis": dict(synthesis or {"status": "not_run"}),
+            "usage": dict(usage or {}),
+        }

@@ -68,3 +68,27 @@ class RepresentativeQuote(BaseModel):
     @classmethod
     def normalize_quote(cls, value: str) -> str:
         return " ".join(value.split())
+
+
+class InterviewSynthesis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operational_issue: EvidenceBackedStatement
+    guest_impact: EvidenceBackedStatement | None = None
+    root_cause_hypotheses: list[EvidenceBackedStatement] = Field(default_factory=list)
+    reported_frequency: EvidenceBackedStatement | None = None
+    reported_severity: EvidenceBackedStatement | None = None
+    workaround: EvidenceBackedStatement | None = None
+    positive_practice: EvidenceBackedStatement | None = None
+    recommended_action: RecommendedAction | None = None
+    representative_quotes: list[RepresentativeQuote] = Field(default_factory=list)
+    confidence: Confidence
+    evidence_gaps: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_gaps")
+    @classmethod
+    def normalize_gaps(cls, values: list[str]) -> list[str]:
+        normalized = [" ".join(value.split()) for value in values if value.strip()]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("evidence gaps must be unique")
+        return normalized

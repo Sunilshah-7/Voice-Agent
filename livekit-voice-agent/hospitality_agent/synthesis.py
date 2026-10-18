@@ -92,3 +92,6 @@ class InterviewSynthesis(BaseModel):
         if len(normalized) != len(set(normalized)):
             raise ValueError("evidence gaps must be unique")
         return normalized
+
+
+TextGenerator = Callable[[str], Awaitable[str]]

@@ -208,3 +208,75 @@ ACTIVE INTERVIEW EVIDENCE
 REQUIRED JSON SCHEMA
 {schema}
 """.strip()
+
+
+def validate_synthesis(
+    synthesis: InterviewSynthesis,
+    *,
+    turns: list[TranscriptTurn],
+) -> None:
+    respondent_turns = {
+        turn.id: turn
+        for turn in turns
+        if turn.role == "respondent" and not turn.interrupted
+    }
+
+    statements: list[EvidenceBackedStatement] = [synthesis.operational_issue]
+    for optional_statement in (
+        synthesis.guest_impact,
+        synthesis.reported_frequency,
+        synthesis.reported_severity,
+        synthesis.workaround,
+        synthesis.positive_practice,
+        synthesis.recommended_action,
+    ):
+        if optional_statement is not None:
+            statements.append(optional_statement)
+    statements.extend(synthesis.root_cause_hypotheses)
+
+    for statement in statements:
+        _validate_evidence_ids(statement.evidence_turn_ids, respondent_turns)
+        lowered = statement.text.casefold()
+        if any(phrase in lowered for phrase in _OVERREACH_PHRASES):
+            raise SynthesisValidationError(
+                f"Unsupported organization-wide claim: {statement.text}"
+            )
+
+    if synthesis.reported_frequency is not None:
+        source_text = " ".join(
+            respondent_turns[turn_id].text
+            for turn_id in synthesis.reported_frequency.evidence_turn_ids
+        )
+        claim_numbers = {
+            token.casefold()
+            for token in _NUMBER_TOKENS.findall(synthesis.reported_frequency.text)
+        }
+        source_numbers = {token.casefold() for token in _NUMBER_TOKENS.findall(source_text)}
+        if not claim_numbers.issubset(source_numbers):
+            raise SynthesisValidationError("Reported frequency contains an unsupported number")
+
+    for quote in synthesis.representative_quotes:
+        _validate_evidence_ids([quote.turn_id], respondent_turns)
+        if quote.text not in respondent_turns[quote.turn_id].text:
+            raise SynthesisValidationError(
+                f"Representative quote is not verbatim in {quote.turn_id}"
+            )
+
+
+def _validate_evidence_ids(
+    turn_ids: list[str], respondent_turns: dict[str, TranscriptTurn]
+) -> None:
+    invalid = [turn_id for turn_id in turn_ids if turn_id not in respondent_turns]
+    if invalid:
+        raise SynthesisValidationError(
+            "Unsupported evidence turn IDs: " + ", ".join(invalid)
+        )
+
+
+def _strip_json_fence(response: str) -> str:
+    stripped = response.strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        lines = stripped.splitlines()
+        if len(lines) >= 3:
+            return "\n".join(lines[1:-1]).strip()
+    return stripped

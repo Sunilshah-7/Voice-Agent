@@ -187,3 +187,50 @@ class IntelligenceStore:
                     "DELETE FROM signals WHERE session_id = ?",
                     (session_id,),
                 )
+                self.connection.executemany(
+                    """
+                    INSERT INTO signals (
+                        session_id, signal_type, signal_key, text,
+                        evidence_turn_ids_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            session_id,
+                            signal_type,
+                            normalize_signal(statement["text"]),
+                            statement["text"],
+                            json.dumps(statement["evidence_turn_ids"]),
+                        )
+                        for signal_type, statement in signals
+                    ),
+                )
+        except sqlite3.Error as exc:
+            raise IntelligenceStoreError(
+                f"Could not index artifact: {artifact_id}"
+            ) from exc
+
+    @staticmethod
+    def _signals_from_synthesis(
+        synthesis: dict[str, Any],
+        eligible_turn_ids: set[str],
+    ) -> Iterable[tuple[str, dict[str, Any]]]:
+        if synthesis.get("status") != "completed":
+            return
+        result = synthesis.get("result")
+        if not isinstance(result, dict):
+            return
+        for signal_type, field in (
+            ("operational_issue", "operational_issue"),
+            ("positive_practice", "positive_practice"),
+        ):
+            statement = result.get(field)
+            if (
+                isinstance(statement, dict)
+                and isinstance(statement.get("text"), str)
+                and statement["text"].strip()
+                and isinstance(statement.get("evidence_turn_ids"), list)
+                and statement["evidence_turn_ids"]
+                and set(statement["evidence_turn_ids"]).issubset(eligible_turn_ids)
+            ):
+                yield signal_type, statement

@@ -234,3 +234,33 @@ class IntelligenceStore:
                 and set(statement["evidence_turn_ids"]).issubset(eligible_turn_ids)
             ):
                 yield signal_type, statement
+
+    def sync_artifact_files(self, paths: Iterable[str | Path]) -> dict[str, int]:
+        indexed = 0
+        failed = 0
+        for path in paths:
+            try:
+                self.index_artifact_file(path)
+            except IntelligenceStoreError:
+                failed += 1
+            else:
+                indexed += 1
+        return {"indexed": indexed, "failed": failed}
+
+    def load_artifact(self, session_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT artifact_json FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            raise IntelligenceStoreError(f"Indexed session not found: {session_id}")
+        try:
+            artifact = json.loads(row["artifact_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise IntelligenceStoreError(
+                f"Indexed session is unreadable: {session_id}"
+            ) from exc
+        if not isinstance(artifact, dict):
+            raise IntelligenceStoreError(f"Indexed session is unreadable: {session_id}")
+        return artifact

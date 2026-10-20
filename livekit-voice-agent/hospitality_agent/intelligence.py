@@ -94,3 +94,96 @@ class IntelligenceStore:
             """
         )
         self.connection.commit()
+
+    def index_artifact_file(self, path: str | Path) -> None:
+        artifact_path = Path(path)
+        try:
+            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise IntelligenceStoreError(
+                f"Could not index artifact: {artifact_path.name}"
+            ) from exc
+        self.index_artifact(artifact_path.name, artifact)
+
+    def index_artifact(self, artifact_id: str, artifact: dict[str, Any]) -> None:
+        try:
+            session = artifact["session"]
+            plan = artifact["interview_plan"]
+            context = artifact.get("respondent_context") or {}
+            synthesis = artifact.get("synthesis") or {"status": "not_run"}
+            session_id = session["id"]
+            created_at = session.get("artifact_created_at")
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("session id is required")
+            if not isinstance(created_at, (int, float)):
+                raise ValueError("artifact creation time is required")
+            artifact_json = json.dumps(artifact, ensure_ascii=False, sort_keys=True)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise IntelligenceStoreError(
+                f"Artifact {artifact_id} is not indexable"
+            ) from exc
+
+        eligible_turn_ids = {
+            turn.get("id")
+            for turn in artifact.get("transcript", [])
+            if isinstance(turn, dict)
+            and turn.get("role") == "respondent"
+            and not turn.get("interrupted", False)
+            and isinstance(turn.get("id"), str)
+        }
+        signals = (
+            list(self._signals_from_synthesis(synthesis, eligible_turn_ids))
+            if session.get("status") == "completed"
+            else []
+        )
+        try:
+            with self._lock, self.connection:
+                self.connection.execute(
+                    """
+                    INSERT INTO sessions (
+                        session_id, artifact_id, artifact_schema_version,
+                        plan_id, plan_version, session_status, started_at,
+                        artifact_created_at, property_id, department,
+                        role_category, shift_type, synthesis_status, confidence,
+                        artifact_json, indexed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        artifact_id = excluded.artifact_id,
+                        artifact_schema_version = excluded.artifact_schema_version,
+                        plan_id = excluded.plan_id,
+                        plan_version = excluded.plan_version,
+                        session_status = excluded.session_status,
+                        started_at = excluded.started_at,
+                        artifact_created_at = excluded.artifact_created_at,
+                        property_id = excluded.property_id,
+                        department = excluded.department,
+                        role_category = excluded.role_category,
+                        shift_type = excluded.shift_type,
+                        synthesis_status = excluded.synthesis_status,
+                        confidence = excluded.confidence,
+                        artifact_json = excluded.artifact_json,
+                        indexed_at = excluded.indexed_at
+                    """,
+                    (
+                        session_id,
+                        artifact_id,
+                        str(artifact.get("schema_version", "unknown")),
+                        str(plan.get("id", "unknown")),
+                        str(plan.get("version", "unknown")),
+                        str(session.get("status", "unknown")),
+                        session.get("started_at"),
+                        float(created_at),
+                        context.get("property_id"),
+                        context.get("department"),
+                        context.get("role_category"),
+                        context.get("shift_type"),
+                        str(synthesis.get("status", "not_run")),
+                        (synthesis.get("result") or {}).get("confidence"),
+                        artifact_json,
+                        time.time(),
+                    ),
+                )
+                self.connection.execute(
+                    "DELETE FROM signals WHERE session_id = ?",
+                    (session_id,),
+                )

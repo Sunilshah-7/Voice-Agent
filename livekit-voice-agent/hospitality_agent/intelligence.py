@@ -264,3 +264,50 @@ class IntelligenceStore:
         if not isinstance(artifact, dict):
             raise IntelligenceStoreError(f"Indexed session is unreadable: {session_id}")
         return artifact
+
+    def intelligence_snapshot(
+        self,
+        *,
+        group_by: str = "department",
+        minimum_sample_size: int = MIN_AGGREGATE_SAMPLE_SIZE,
+        as_of: float | None = None,
+        recent_days: int = 30,
+    ) -> dict[str, Any]:
+        if group_by not in ALLOWED_GROUP_DIMENSIONS:
+            raise ValueError(f"Unsupported grouping dimension: {group_by}")
+        if minimum_sample_size < MIN_AGGREGATE_SAMPLE_SIZE:
+            raise ValueError(
+                f"Minimum sample size cannot be below {MIN_AGGREGATE_SAMPLE_SIZE}"
+            )
+        with self._lock:
+            return {
+                "group_by": group_by,
+                "minimum_sample_size": minimum_sample_size,
+                "indexed_sessions": self._indexed_session_count(),
+                "recurring_issues": self._aggregate(
+                    "operational_issue",
+                    group_by,
+                    minimum_sample_size,
+                ),
+                "positive_practices": self._aggregate(
+                    "positive_practice",
+                    group_by,
+                    minimum_sample_size,
+                ),
+                "trends": self._trends(
+                    group_by=group_by,
+                    minimum_sample_size=minimum_sample_size,
+                    as_of=time.time() if as_of is None else as_of,
+                    recent_days=recent_days,
+                ),
+                "limitations": [
+                    "Only completed, evidence-linked syntheses become signals.",
+                    "Findings group only when their normalized wording matches; semantic clustering is not inferred.",
+                    "Groups below the minimum sample size are withheld.",
+                    "Counts represent interviews, not unique employees or verified incidents.",
+                ],
+            }
+
+    def _indexed_session_count(self) -> int:
+        row = self.connection.execute("SELECT COUNT(*) AS count FROM sessions").fetchone()
+        return int(row["count"])

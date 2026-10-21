@@ -388,3 +388,76 @@ class IntelligenceStore:
             """,
             parameters,
         ).fetchall()
+
+    def _trends(
+        self,
+        *,
+        group_by: str,
+        minimum_sample_size: int,
+        as_of: float,
+        recent_days: int,
+    ) -> list[dict[str, Any]]:
+        window = recent_days * 86400
+        recent_start = as_of - window
+        baseline_start = recent_start - window
+        rows = self.connection.execute(
+            f"""
+            SELECT
+                COALESCE(s.{group_by}, 'not_recorded') AS dimension_value,
+                g.signal_key,
+                MIN(g.text) AS representative_text,
+                COUNT(DISTINCT CASE
+                    WHEN s.artifact_created_at > ? AND s.artifact_created_at <= ?
+                    THEN s.session_id END) AS recent_count,
+                COUNT(DISTINCT CASE
+                    WHEN s.artifact_created_at > ? AND s.artifact_created_at <= ?
+                    THEN s.session_id END) AS baseline_count
+            FROM signals AS g
+            JOIN sessions AS s ON s.session_id = g.session_id
+            WHERE g.signal_type = 'operational_issue'
+              AND s.artifact_created_at > ?
+              AND s.artifact_created_at <= ?
+            GROUP BY dimension_value, g.signal_key
+            """,
+            (
+                recent_start,
+                as_of,
+                baseline_start,
+                recent_start,
+                baseline_start,
+                as_of,
+            ),
+        ).fetchall()
+        trends = []
+        for row in rows:
+            recent_count = int(row["recent_count"])
+            baseline_count = int(row["baseline_count"])
+            if recent_count < minimum_sample_size or recent_count <= baseline_count:
+                continue
+            sources = self._supporting_sessions(
+                signal_type="operational_issue",
+                signal_key=row["signal_key"],
+                group_by=group_by,
+                dimension_value=row["dimension_value"],
+                after=recent_start,
+                through=as_of,
+            )
+            trends.append(
+                {
+                    "classification": "emerging" if baseline_count == 0 else "increasing",
+                    "dimension_value": row["dimension_value"],
+                    "signal_key": row["signal_key"],
+                    "text": row["representative_text"],
+                    "recent_count": recent_count,
+                    "baseline_count": baseline_count,
+                    "supporting_session_ids": [
+                        source["session_id"] for source in sources
+                    ],
+                    "supporting_artifact_ids": [
+                        source["artifact_id"] for source in sources
+                    ],
+                    "recent_window_days": recent_days,
+                }
+            )
+        trends.sort(key=lambda item: (-item["recent_count"], item["text"]))
+        return trends

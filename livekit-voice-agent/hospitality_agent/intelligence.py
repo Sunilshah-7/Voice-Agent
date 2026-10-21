@@ -311,3 +311,80 @@ class IntelligenceStore:
     def _indexed_session_count(self) -> int:
         row = self.connection.execute("SELECT COUNT(*) AS count FROM sessions").fetchone()
         return int(row["count"])
+
+    def _aggregate(
+        self,
+        signal_type: str,
+        group_by: str,
+        minimum_sample_size: int,
+    ) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            f"""
+            SELECT
+                COALESCE(s.{group_by}, 'not_recorded') AS dimension_value,
+                g.signal_key,
+                MIN(g.text) AS representative_text,
+                COUNT(DISTINCT s.session_id) AS sample_size,
+                MIN(s.artifact_created_at) AS first_seen_at,
+                MAX(s.artifact_created_at) AS last_seen_at
+            FROM signals AS g
+            JOIN sessions AS s ON s.session_id = g.session_id
+            WHERE g.signal_type = ?
+            GROUP BY dimension_value, g.signal_key
+            HAVING COUNT(DISTINCT s.session_id) >= ?
+            ORDER BY sample_size DESC, last_seen_at DESC
+            """,
+            (signal_type, minimum_sample_size),
+        ).fetchall()
+        aggregates = []
+        for row in rows:
+            sources = self._supporting_sessions(
+                signal_type=signal_type,
+                signal_key=row["signal_key"],
+                group_by=group_by,
+                dimension_value=row["dimension_value"],
+            )
+            aggregates.append({
+                "dimension_value": row["dimension_value"],
+                "signal_key": row["signal_key"],
+                "text": row["representative_text"],
+                "sample_size": row["sample_size"],
+                "supporting_session_ids": [source["session_id"] for source in sources],
+                "supporting_artifact_ids": [source["artifact_id"] for source in sources],
+                "first_seen_at": row["first_seen_at"],
+                "last_seen_at": row["last_seen_at"],
+            })
+        return aggregates
+
+    def _supporting_sessions(
+        self,
+        *,
+        signal_type: str,
+        signal_key: str,
+        group_by: str,
+        dimension_value: str,
+        after: float | None = None,
+        through: float | None = None,
+    ) -> list[sqlite3.Row]:
+        conditions = [
+            "g.signal_type = ?",
+            "g.signal_key = ?",
+            f"COALESCE(s.{group_by}, 'not_recorded') = ?",
+        ]
+        parameters: list[object] = [signal_type, signal_key, dimension_value]
+        if after is not None:
+            conditions.append("s.artifact_created_at > ?")
+            parameters.append(after)
+        if through is not None:
+            conditions.append("s.artifact_created_at <= ?")
+            parameters.append(through)
+        return self.connection.execute(
+            f"""
+            SELECT s.session_id, s.artifact_id
+            FROM signals AS g
+            JOIN sessions AS s ON s.session_id = g.session_id
+            WHERE {" AND ".join(conditions)}
+            ORDER BY s.session_id
+            """,
+            parameters,
+        ).fetchall()

@@ -63,3 +63,40 @@ async def entrypoint(ctx: JobContext) -> None:
         plan=interview_plan,
         recorder=recorder,
     )
+    synthesis_model = llm.FallbackAdapter(
+        [
+            inference.LLM(model="openai/gpt-4.1-mini"),
+            inference.LLM(model="google/gemini-2.5-flash"),
+        ]
+    )
+    synthesis_service = SynthesisService(LiveKitTextGenerator(synthesis_model))
+    # Configure the voice pipeline with STT, LLM, TTS, and VAD providers
+    session = AgentSession(
+        # LLM with fallback: OpenAI primary, Gemini backup
+        llm=llm.FallbackAdapter(
+            [
+                inference.LLM(model="openai/gpt-4.1-mini"),
+                inference.LLM(model="google/gemini-2.5-flash"),
+            ]
+        ),
+        # LiveKit Inference uses existing LiveKit credentials; no Deepgram key needed.
+        # STT with fallback: Deepgram primary, AssemblyAI backup
+        stt=stt.FallbackAdapter(
+            [
+                inference.STT.from_model_string("deepgram/nova-3:en"),
+                inference.STT.from_model_string("assemblyai/universal-streaming:en"),
+            ]
+        ),
+        # ElevenLabs retired from LiveKit Inference on 2026-08-31 and now needs
+        # a separate provider key. Keep TTS on LiveKit Inference for key-free setup.
+        # TTS with fallback: Cartesia primary, Inworld backup
+        tts=tts.FallbackAdapter(
+            [
+                inference.TTS.from_model_string("deepgram/aura-2:luna"),
+                inference.TTS.from_model_string("inworld/inworld-tts-1"),
+            ]
+        ),
+        vad=vad,
+        turn_detection=MultilingualModel(),
+        preemptive_generation=True,
+    )

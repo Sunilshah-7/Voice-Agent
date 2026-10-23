@@ -100,3 +100,79 @@ async def entrypoint(ctx: JobContext) -> None:
         turn_detection=MultilingualModel(),
         preemptive_generation=True,
     )
+    # Aggregate data across all conversation turns
+    usage_collector = metrics.UsageCollector()
+
+    # Track End of Utterance timing (when turn detector decides user finished speaking)
+    last_eou_metrics: metrics.EOUMetrics | None = None
+
+    @session.on("metrics_collected")
+    def _on_metrics_collected(ev: MetricsCollectedEvent) -> None:
+        nonlocal last_eou_metrics
+        # Capture EOU metrics for TTFA calculation
+        if ev.metrics.type == "eou_metrics":
+            last_eou_metrics = ev.metrics
+
+        # Log each metric as it arrives and add to usage collector
+        metrics.log_metrics(ev.metrics)
+        usage_collector.collect(ev.metrics)
+
+    async def persist_session() -> None:
+        summary = usage_collector.get_summary()
+        logger.info("Usage summary: %s", summary)
+        if recorder.latest_respondent_turn_id is None:
+            synthesis: dict[str, object] = {
+                "status": "skipped",
+                "reason": "no_finalized_respondent_turns",
+            }
+        else:
+            try:
+                result = await synthesis_service.synthesize(
+                    turns=recorder.turns,
+                    state=interviewer.interview_state,
+                )
+            except SynthesisError as exc:
+                logger.warning("Session synthesis failed: %s", type(exc).__name__)
+                synthesis = {
+                    "status": "failed",
+                    "error_code": type(exc).__name__,
+                }
+            except Exception:
+                logger.exception("Session synthesis failed unexpectedly")
+                synthesis = {
+                    "status": "failed",
+                    "error_code": "unexpected_synthesis_failure",
+                }
+            else:
+                synthesis = {
+                    "status": "completed",
+                    "result": result.model_dump(mode="json"),
+                }
+        try:
+            path = recorder.finalize(
+                interviewer.interview_state,
+                usage=vars(summary),
+                synthesis=synthesis,
+            )
+        except ArtifactWriteError:
+            logger.exception("Session ended but its artifact could not be written")
+            return
+        logger.info("Session artifact written: %s", path)
+        database_path = os.getenv(
+            "SHIFT_SIGNAL_DB_PATH",
+            str(recorder.output_dir / "shiftsignal.db"),
+        )
+        try:
+            intelligence = IntelligenceStore(database_path)
+            try:
+                intelligence.index_artifact_file(path)
+            finally:
+                intelligence.close()
+        except IntelligenceStoreError:
+            logger.exception(
+                "Session artifact was saved but could not be indexed for cross-interview review"
+            )
+        else:
+            logger.info("Session indexed for cross-interview review")
+
+    ctx.add_shutdown_callback(persist_session)

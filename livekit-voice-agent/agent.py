@@ -176,3 +176,38 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.info("Session indexed for cross-interview review")
 
     ctx.add_shutdown_callback(persist_session)
+
+    @session.on("conversation_item_added")
+    def _on_conversation_item_added(ev: ConversationItemAddedEvent) -> None:
+        if isinstance(ev.item, llm.ChatMessage):
+            recorder.record_chat_message(ev.item)
+
+    @session.on("close")
+    def _on_close(ev: CloseEvent) -> None:
+        recorder.set_close(ev.reason, created_at=ev.created_at)
+
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(ev: AgentStateChangedEvent) -> None:
+        if ev.new_state == "speaking":
+            if last_eou_metrics:
+                # Calculate time since user finished speaking
+                elapsed = time.time() - last_eou_metrics.timestamp
+                logger.info(f"Time to first audio: {elapsed:.3f}s")
+
+    # Start the session with noise cancellation enabled
+    await session.start(
+        agent=interviewer,
+        room=ctx.room,
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=noise_cancellation.BVC(),  # Background voice cancellation
+            ),
+        ),
+    )
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    agents.cli.run_app(server)
+
+    ctx.add_shutdown_callback(persist_session)

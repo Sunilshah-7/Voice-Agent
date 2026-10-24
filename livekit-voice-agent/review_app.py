@@ -91,3 +91,73 @@ class ReviewApplication:
     def _json(status: HTTPStatus, payload: object) -> Response:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         return Response(status, "application/json; charset=utf-8", body)
+
+
+def handler_for(application: ReviewApplication) -> type[BaseHTTPRequestHandler]:
+    class ReviewHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self._respond(include_body=True)
+
+        def do_HEAD(self) -> None:
+            self._respond(include_body=False)
+
+        def do_POST(self) -> None:
+            self._respond(include_body=True)
+
+        def _respond(self, *, include_body: bool) -> None:
+            response = application.handle(self.command, self.path)
+            self.send_response(response.status)
+            self.send_header("Content-Type", response.content_type)
+            self.send_header("Content-Length", str(len(response.body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+            )
+            self.end_headers()
+            if include_body:
+                self.wfile.write(response.body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            print(f"review {self.address_string()} - {format % args}")
+
+    return ReviewHandler
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument(
+        "--output-dir",
+        default=os.getenv("SHIFT_SIGNAL_OUTPUT_DIR", "outputs"),
+    )
+    parser.add_argument(
+        "--database",
+        default=os.getenv("SHIFT_SIGNAL_DB_PATH"),
+        help="SQLite path; defaults to <output-dir>/shiftsignal.db",
+    )
+    args = parser.parse_args()
+    database_path = args.database or str(Path(args.output_dir) / "shiftsignal.db")
+    intelligence = IntelligenceStore(database_path)
+    application = ReviewApplication(
+        ReviewStore(args.output_dir),
+        intelligence=intelligence,
+    )
+    server = ThreadingHTTPServer((args.host, args.port), handler_for(application))
+    print(f"ShiftSignal review: http://{args.host}:{args.port}")
+    print(f"Reading artifacts from: {Path(args.output_dir).resolve()}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping review server")
+    finally:
+        server.server_close()
+        intelligence.close()
+
+
+if __name__ == "__main__":
+    main()

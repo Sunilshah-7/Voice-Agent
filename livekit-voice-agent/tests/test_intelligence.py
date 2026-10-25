@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +25,49 @@ def artifact(
     synthesis_status: str = "completed",
     session_status: str = "completed",
     evidence_turn_id: str = "turn-0001",
+    human_review_required: bool = False,
 ) -> dict[str, object]:
+    incident_record: dict[str, object] = {
+        "schema_version": "1.0",
+        "incident_type": "parking_complaint",
+        "subcategory": "blocked_driveway",
+        "classification_evidence_turn_ids": [evidence_turn_id],
+        "caller": {
+            "name": {
+                "value": "Maya Chen",
+                "evidence_turn_ids": [evidence_turn_id],
+            },
+            "contact": None,
+        },
+        "location": {
+            "value": "14 Oak Street",
+            "evidence_turn_ids": [evidence_turn_id],
+        },
+        "description": {
+            "value": issue,
+            "evidence_turn_ids": [evidence_turn_id],
+        },
+        "occurred_at": {
+            "value": "this morning",
+            "evidence_turn_ids": [evidence_turn_id],
+        },
+        "relevant_details": [],
+        "urgency": {
+            "classification": "urgent" if human_review_required else "routine",
+            "rationale": (
+                "Immediate human review is required."
+                if human_review_required
+                else "No immediate danger was reported."
+            ),
+            "evidence_turn_ids": [evidence_turn_id],
+        },
+        "summary": {
+            "value": issue,
+            "evidence_turn_ids": [evidence_turn_id],
+        },
+        "confidence": "medium",
+        "evidence_gaps": [],
+    }
     result: dict[str, object] = {
         "operational_issue": {
             "text": issue,
@@ -44,7 +87,7 @@ def artifact(
     if synthesis_status == "completed":
         synthesis["result"] = result
     return {
-        "schema_version": "1.1",
+        "schema_version": "2.0",
         "session": {
             "id": session_id,
             "status": session_status,
@@ -69,6 +112,24 @@ def artifact(
             }
         ],
         "objective_coverage": [],
+        "safety": {
+            "urgency": "urgent" if human_review_required else "routine",
+            "human_review_required": human_review_required,
+            "review_flag": (
+                "Urgent — Human Review Required" if human_review_required else None
+            ),
+            "escalation": (
+                {
+                    "status": "simulated_operator_notified",
+                    "source_turn_id": evidence_turn_id,
+                    "elapsed_seconds": 4.0,
+                    "simulated": True,
+                }
+                if human_review_required
+                else None
+            ),
+        },
+        "incident_record": incident_record,
         "synthesis": synthesis,
         "usage": {},
     }
@@ -227,3 +288,68 @@ class IntelligenceStoreTests(unittest.TestCase):
         self.assertEqual(len(snapshot["recurring_issues"]), 1)
         recovered = self.store.load_artifact("session-0")
         self.assertEqual(recovered["session"]["id"], "session-0")
+
+    def test_structured_incident_record_is_persisted_in_existing_database(self) -> None:
+        self.index("incident", created_at=1, human_review_required=True)
+
+        record = self.store.load_incident_record("incident")
+        row = self.store.connection.execute(
+            """
+            SELECT incident_type, subcategory, caller_name, incident_location,
+                   incident_description, occurred_at, urgency, summary,
+                   human_review_required, escalation_status
+            FROM incident_records
+            WHERE session_id = ?
+            """,
+            ("incident",),
+        ).fetchone()
+
+        self.assertEqual(record["incident_type"], "parking_complaint")
+        self.assertEqual(record["caller"]["name"]["value"], "Maya Chen")
+        self.assertEqual(row["subcategory"], "blocked_driveway")
+        self.assertEqual(row["incident_location"], "14 Oak Street")
+        self.assertEqual(row["occurred_at"], "this morning")
+        self.assertEqual(row["urgency"], "urgent")
+        self.assertEqual(row["human_review_required"], 1)
+        self.assertEqual(row["escalation_status"], "simulated_operator_notified")
+
+    def test_existing_incident_table_is_migrated_with_escalation_columns(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy.db"
+        connection = sqlite3.connect(legacy_path)
+        connection.execute(
+            """
+            CREATE TABLE incident_records (
+                session_id TEXT PRIMARY KEY,
+                incident_schema_version TEXT NOT NULL,
+                incident_type TEXT NOT NULL,
+                subcategory TEXT NOT NULL,
+                caller_name TEXT,
+                caller_contact TEXT,
+                incident_location TEXT,
+                incident_description TEXT NOT NULL,
+                occurred_at TEXT,
+                urgency TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                incident_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        migrated = IntelligenceStore(legacy_path)
+        self.addCleanup(migrated.close)
+        columns = {
+            row["name"]
+            for row in migrated.connection.execute("PRAGMA table_info(incident_records)")
+        }
+
+        self.assertIn("human_review_required", columns)
+        self.assertIn("escalation_status", columns)
+        self.assertIn("incident_id", columns)
+        self.assertIn("submission_status", columns)
+        notification_table = migrated.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ("operator_notifications",),
+        ).fetchone()
+        self.assertIsNotNone(notification_table)

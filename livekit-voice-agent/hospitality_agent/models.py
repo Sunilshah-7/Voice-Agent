@@ -1,4 +1,4 @@
-"""Typed domain models for a structured hospitality interview."""
+"""Typed domain models for structured non-emergency call intake."""
 
 from __future__ import annotations
 
@@ -27,6 +27,14 @@ class CompletionReason(StrEnum):
     TIME_LIMIT = "time_limit"
     RESPONDENT_ENDED = "respondent_ended"
     SENSITIVE_DISCLOSURE = "sensitive_disclosure"
+    URGENT_ESCALATION = "urgent_escalation"
+
+
+class UrgencyClassification(StrEnum):
+    ROUTINE = "routine"
+    PRIORITY = "priority"
+    URGENT = "urgent"
+    EMERGENCY = "emergency"
 
 
 class ArtifactStatus(StrEnum):

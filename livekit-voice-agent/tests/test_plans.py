@@ -6,10 +6,11 @@ import unittest
 from hospitality_agent.models import InterviewPlan, ResearchObjective
 from hospitality_agent.plans import (
     DEFAULT_INTERVIEW_PLAN,
+    GENERAL_INQUIRY,
     INTERVIEW_PLANS,
-    NEW_PROCESS_ROLLOUT,
-    POST_SHIFT_GUEST_EXPERIENCE,
-    RECURRING_SERVICE_BREAKDOWN,
+    LOST_PET,
+    NOISE_COMPLAINT,
+    PARKING_COMPLAINT,
     get_interview_plan,
     interview_plan_from_job_metadata,
 )
@@ -17,33 +18,35 @@ from hospitality_agent.state import InterviewState
 
 
 class InterviewPlanTests(unittest.TestCase):
-    def test_registry_contains_three_distinct_versioned_templates(self) -> None:
+    def test_registry_contains_primary_categories_and_general_inquiry(self) -> None:
         self.assertEqual(
             set(INTERVIEW_PLANS),
             {
-                "post_shift_guest_experience",
-                "new_process_rollout",
-                "recurring_service_breakdown",
+                "general_inquiry",
+                "parking_complaint",
+                "lost_pet",
+                "noise_complaint",
             },
         )
         self.assertIs(
-            INTERVIEW_PLANS[POST_SHIFT_GUEST_EXPERIENCE.id],
-            POST_SHIFT_GUEST_EXPERIENCE,
+            INTERVIEW_PLANS[GENERAL_INQUIRY.id],
+            GENERAL_INQUIRY,
         )
-        self.assertIs(INTERVIEW_PLANS[NEW_PROCESS_ROLLOUT.id], NEW_PROCESS_ROLLOUT)
+        self.assertIs(INTERVIEW_PLANS[PARKING_COMPLAINT.id], PARKING_COMPLAINT)
+        self.assertIs(INTERVIEW_PLANS[LOST_PET.id], LOST_PET)
         self.assertIs(
-            INTERVIEW_PLANS[RECURRING_SERVICE_BREAKDOWN.id],
-            RECURRING_SERVICE_BREAKDOWN,
+            INTERVIEW_PLANS[NOISE_COMPLAINT.id],
+            NOISE_COMPLAINT,
         )
         self.assertEqual({plan.version for plan in INTERVIEW_PLANS.values()}, {"1.0"})
 
     def test_each_template_has_safe_opening_and_valid_completion_contract(self) -> None:
         for plan in INTERVIEW_PLANS.values():
             with self.subTest(plan=plan.id):
-                self.assertIn("AI interviewer", plan.opening_message)
-                self.assertIn("not a performance evaluation", plan.opening_message)
-                self.assertIn("skip any question", plan.opening_message)
-                self.assertIn("guest names", plan.opening_message)
+                self.assertIn("AI non-emergency call intake agent", plan.opening_message)
+                self.assertIn("not a dispatcher", plan.opening_message)
+                self.assertIn("skip a question", plan.opening_message)
+                self.assertIn("call 911 or your local emergency number", plan.opening_message)
                 self.assertTrue(set(plan.core_objective_ids).issubset(plan.objective_ids))
                 self.assertEqual(plan.initial_objective_id, plan.objectives[0].id)
 
@@ -63,17 +66,23 @@ class InterviewPlanTests(unittest.TestCase):
     def test_default_and_explicit_plan_selection(self) -> None:
         self.assertIs(get_interview_plan(None), DEFAULT_INTERVIEW_PLAN)
         self.assertIs(get_interview_plan(""), DEFAULT_INTERVIEW_PLAN)
-        self.assertIs(get_interview_plan("new_process_rollout"), NEW_PROCESS_ROLLOUT)
+        self.assertIs(get_interview_plan("parking_complaint"), PARKING_COMPLAINT)
         selected = interview_plan_from_job_metadata(
-            json.dumps({"interview_plan_id": "recurring_service_breakdown"})
+            json.dumps({"call_category": "noise_complaint"})
         )
-        self.assertIs(selected, RECURRING_SERVICE_BREAKDOWN)
+        self.assertIs(selected, NOISE_COMPLAINT)
+
+    def test_legacy_metadata_key_remains_compatible(self) -> None:
+        selected = interview_plan_from_job_metadata(
+            json.dumps({"interview_plan_id": "lost_pet"})
+        )
+        self.assertIs(selected, LOST_PET)
 
     def test_unknown_or_invalid_plan_metadata_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown interview plan"):
             get_interview_plan("unknown")
         with self.assertRaisesRegex(ValueError, "must be a string"):
-            interview_plan_from_job_metadata(json.dumps({"interview_plan_id": 7}))
+            interview_plan_from_job_metadata(json.dumps({"call_category": 7}))
 
     def test_plan_model_rejects_invalid_completion_contract(self) -> None:
         objective = ResearchObjective(

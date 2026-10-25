@@ -1,4 +1,5 @@
-const state = { sessions: [], selectedId: null, mode: "session" };
+const REVIEW_STATUSES = ["Pending Review", "Under Review", "Escalated", "Resolved"];
+const state = { sessions: [], selectedId: null, artifact: null };
 
 const $ = (id) => document.getElementById(id);
 const create = (tag, className, text) => {
@@ -7,8 +8,9 @@ const create = (tag, className, text) => {
   if (text !== undefined && text !== null) element.textContent = text;
   return element;
 };
-
 const label = (value) => String(value ?? "Not recorded").replaceAll("_", " ");
+const statusClass = (value) => String(value ?? "").toLowerCase().replaceAll(" ", "-");
+const fieldValue = (field) => field?.value || null;
 const dateTime = (seconds) => {
   if (!seconds) return "Not recorded";
   return new Intl.DateTimeFormat(undefined, {
@@ -18,7 +20,22 @@ const dateTime = (seconds) => {
 };
 
 function badge(text, status = "") {
-  return create("span", `badge ${status}`, label(text));
+  return create("span", `badge ${statusClass(status)}`, label(text));
+}
+
+function incidentRecord(artifact) {
+  return artifact.incident?.record || artifact.incident_record || {};
+}
+
+function incidentId(artifact) {
+  return artifact.incident?.id || artifact.session?.incident_id || null;
+}
+
+function isUrgent(artifact) {
+  const urgency = incidentRecord(artifact).urgency?.classification || artifact.safety?.urgency;
+  return Boolean(
+    artifact.safety?.human_review_required || urgency === "urgent" || urgency === "emergency",
+  );
 }
 
 function evidenceLinks(turnIds = []) {
@@ -42,14 +59,16 @@ function focusTurn(turnId) {
 }
 
 async function loadSessions() {
-  $("session-list").replaceChildren(create("p", "muted", "Loading interviews…"));
+  $("session-list").replaceChildren(create("p", "muted", "Loading incidents…"));
   try {
     const response = await fetch("/api/sessions", { cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load interviews");
+    if (!response.ok) throw new Error("Could not load incidents");
     state.sessions = (await response.json()).sessions;
     renderSessionList();
-    const firstReady = state.sessions.find((session) => session.review_status === "ready");
-    if (!state.selectedId && firstReady) selectSession(firstReady.artifact_id);
+    const selected = state.sessions.find((item) => item.artifact_id === state.selectedId);
+    const firstReady = state.sessions.find((item) => item.review_status === "ready");
+    if (selected) await selectSession(selected.artifact_id, { refreshList: false });
+    else if (firstReady) await selectSession(firstReady.artifact_id, { refreshList: false });
   } catch (error) {
     $("session-list").replaceChildren(create("p", "empty-panel", error.message));
   }
@@ -59,260 +78,174 @@ function renderSessionList() {
   const query = $("session-search").value.trim().toLowerCase();
   const filtered = state.sessions.filter((session) => {
     const searchable = [
-      session.session_id,
-      session.plan?.title,
-      session.respondent_context?.department,
-      session.respondent_context?.property_id,
-      session.review_status,
+      session.incident_id,
+      session.incident_type,
+      session.location,
+      session.summary,
+      session.caller_name,
+      session.review?.status,
+      session.urgency,
     ].join(" ").toLowerCase();
     return searchable.includes(query);
   });
-  $("session-count").textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
+  $("session-count").textContent = `${filtered.length} ${filtered.length === 1 ? "incident" : "incidents"}`;
   const list = $("session-list");
   list.replaceChildren();
   if (!filtered.length) {
-    list.append(create("p", "empty-panel", "No matching session artifacts."));
+    list.append(create("p", "empty-panel", "No matching incident records."));
     return;
   }
   filtered.forEach((session) => {
     const button = create("button", "session-button");
     button.type = "button";
+    button.classList.toggle("active", session.artifact_id === state.selectedId);
     button.classList.toggle(
-      "active",
-      state.mode === "session" && session.artifact_id === state.selectedId,
+      "urgent",
+      session.human_review_required || ["urgent", "emergency"].includes(session.urgency),
     );
-    button.append(badge(session.status || session.review_status, session.status || session.review_status));
-    button.append(create("strong", "", session.plan?.title || "Unreadable artifact"));
-    button.append(create("small", "", session.error || dateTime(session.started_at)));
+    const top = create("div", "session-button-top");
+    top.append(
+      badge(session.review?.status || "Pending Review", session.review?.status),
+      badge(session.urgency || "unknown", session.urgency),
+    );
+    button.append(top);
+    button.append(create("strong", "", session.incident_id || "Legacy session"));
+    button.append(create("small", "", label(session.incident_type || session.plan?.id)));
+    button.append(create("small", "", session.location || dateTime(session.submission_time)));
     button.disabled = session.review_status !== "ready";
     if (!button.disabled) button.addEventListener("click", () => selectSession(session.artifact_id));
     list.append(button);
   });
 }
 
-async function selectSession(artifactId) {
-  state.mode = "session";
+async function selectSession(artifactId, { refreshList = true } = {}) {
   state.selectedId = artifactId;
-  $("signals-button").classList.remove("active");
-  renderSessionList();
+  if (refreshList) renderSessionList();
   $("empty-state").hidden = true;
-  $("intelligence-content").hidden = true;
   $("review-content").hidden = true;
   try {
-    const response = await fetch(`/api/sessions/${encodeURIComponent(artifactId)}`, { cache: "no-store" });
+    const response = await fetch(`/api/sessions/${encodeURIComponent(artifactId)}`, {
+      cache: "no-store",
+    });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Could not load interview");
+    if (!response.ok) throw new Error(payload.error || "Could not load incident");
+    state.artifact = payload;
     renderArtifact(payload);
     $("review-content").hidden = false;
   } catch (error) {
     $("empty-state").hidden = false;
-    $("empty-state").querySelector("h2").textContent = "Interview could not be loaded";
+    $("empty-state").querySelector("h2").textContent = "Incident could not be loaded";
     $("empty-state").querySelector("p:last-child").textContent = error.message;
   }
 }
 
-async function loadIntelligence() {
-  state.mode = "intelligence";
-  state.selectedId = null;
-  $("signals-button").classList.add("active");
-  renderSessionList();
-  $("empty-state").hidden = true;
-  $("review-content").hidden = true;
-  $("intelligence-content").hidden = false;
-  const groupBy = $("dimension-select").value;
-  ["trend-signals", "issue-signals", "practice-signals"].forEach((id) => {
-    $(id).replaceChildren(create("div", "empty-panel", "Loading signals…"));
-  });
-  try {
-    const response = await fetch(
-      `/api/intelligence?group_by=${encodeURIComponent(groupBy)}`,
-      { cache: "no-store" },
-    );
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Could not load intelligence");
-    renderIntelligence(payload);
-  } catch (error) {
-    $("trend-signals").replaceChildren(create("div", "empty-panel", error.message));
-    $("issue-signals").replaceChildren();
-    $("practice-signals").replaceChildren();
-  }
-}
-
-function renderIntelligence(snapshot) {
-  const facts = [
-    ["Indexed interviews", snapshot.indexed_sessions],
-    ["Minimum sample", snapshot.minimum_sample_size],
-    ["Qualified issues", snapshot.recurring_issues.length],
-    ["Recent signals", snapshot.trends.length],
-  ];
-  $("intelligence-facts").replaceChildren(...facts.map(([name, value]) => {
-    const card = create("div", "fact");
-    card.append(create("small", "", name), create("strong", "", value));
-    return card;
-  }));
-  renderSignalList("trend-signals", snapshot.trends, true);
-  renderSignalList("issue-signals", snapshot.recurring_issues);
-  renderSignalList("practice-signals", snapshot.positive_practices);
-  $("intelligence-limitations").replaceChildren(
-    ...snapshot.limitations.map((limitation) => create("li", "", limitation)),
-  );
-}
-
-function renderSignalList(containerId, signals, isTrend = false) {
-  const container = $(containerId);
-  container.replaceChildren();
-  if (!signals.length) {
-    container.append(
-      create(
-        "div",
-        "empty-panel",
-        "No signal meets the minimum evidence threshold for this grouping.",
-      ),
-    );
-    return;
-  }
-  signals.forEach((signal) => {
-    const card = create("article", "signal-card");
-    const count = isTrend ? signal.recent_count : signal.sample_size;
-    const status = isTrend ? signal.classification : `${count} interviews`;
-    card.append(badge(status, isTrend ? "partial" : "completed"));
-    card.append(create("h4", "", signal.text));
-    const comparison = isTrend
-      ? `${label(signal.dimension_value)} · ${signal.baseline_count} prior → ${signal.recent_count} recent`
-      : `${label(signal.dimension_value)} · ${count} supporting interviews`;
-    card.append(create("p", "", comparison));
-    const sources = create("div", "source-links");
-    signal.supporting_artifact_ids.forEach((artifactId, index) => {
-      const sessionId = signal.supporting_session_ids[index] || artifactId;
-      const button = create("button", "source-link", sessionId);
-      button.type = "button";
-      button.addEventListener("click", () => selectSession(artifactId));
-      sources.append(button);
-    });
-    card.append(sources);
-    container.append(card);
-  });
-}
-
 function renderArtifact(artifact) {
-  const session = artifact.session;
-  const synthesis = artifact.synthesis || { status: "not_run" };
-  const result = synthesis.result || {};
-  $("plan-title").textContent = artifact.interview_plan.title;
-  $("session-subtitle").textContent = `Session ${session.id} · schema ${artifact.schema_version}`;
+  const session = artifact.session || {};
+  const incident = incidentRecord(artifact);
+  const id = incidentId(artifact) || "Legacy session";
+  const urgency = incident.urgency?.classification || artifact.safety?.urgency || "unknown";
+  $("incident-id").textContent = id;
+  $("incident-subtitle").textContent = `${label(incident.incident_type)} · submitted ${dateTime(session.artifact_created_at)}`;
   $("header-badges").replaceChildren(
-    badge(session.status, session.status),
-    badge(label(artifact.interview_plan.id)),
+    badge(artifact.incident?.status || "Not submitted", artifact.incident?.status),
+    badge(artifact.review?.status || "Pending Review", artifact.review?.status),
   );
-  const confidence = $("confidence-card");
-  confidence.replaceChildren(create("small", "", "Confidence"), create("strong", "", label(result.confidence)));
-  renderFacts(session, artifact.respondent_context || {});
-  renderSynthesis(synthesis);
-  renderCoverage(artifact.objective_coverage || []);
+  $("urgency-card").replaceChildren(
+    create("small", "", "Urgency"),
+    create("strong", "", label(urgency)),
+  );
+  $("urgency-card").classList.toggle("urgent", isUrgent(artifact));
+  $("urgent-alert").hidden = !isUrgent(artifact);
+
+  renderReviewState(artifact.review, Boolean(incidentId(artifact)));
+  renderFacts(artifact, incident, urgency);
+  renderCaller(incident);
+  renderSummary(incident);
+  renderDetails(incident);
   renderTranscript(artifact.transcript || []);
 }
 
-function renderFacts(session, context) {
+function renderReviewState(review, enabled) {
+  const status = review?.status || "Pending Review";
+  $("status-select").value = REVIEW_STATUSES.includes(status) ? status : "Pending Review";
+  $("status-select").disabled = !enabled;
+  $("save-status-button").disabled = !enabled;
+  $("acknowledge-button").disabled = !enabled || Boolean(review?.acknowledged_at);
+  $("acknowledgment-text").textContent = review?.acknowledged_at
+    ? `Acknowledged ${dateTime(review.acknowledged_at)} · last updated ${dateTime(review.updated_at)}`
+    : "Not yet acknowledged by an operator.";
+  $("operator-message").textContent = enabled ? "" : "Review actions are unavailable for legacy artifacts.";
+}
+
+function renderFacts(artifact, incident, urgency) {
+  const notification = artifact.operator_notification || {};
   const facts = [
-    ["Started", dateTime(session.started_at)],
-    ["Completion", label(session.completion_reason)],
-    ["Close reason", label(session.close_reason)],
-    ["Final turns", session.transcript_turns ?? 0],
+    ["Incident type", label(incident.incident_type)],
+    ["Subcategory", label(incident.subcategory)],
+    ["Urgency", label(urgency)],
+    ["Submission time", dateTime(artifact.session?.artifact_created_at)],
+    ["Notification", label(notification.status || "Not sent")],
+    ["Transcript turns", artifact.session?.transcript_turns ?? artifact.transcript?.length ?? 0],
   ];
-  $("session-facts").replaceChildren(...facts.map(([name, value]) => {
+  $("incident-facts").replaceChildren(...facts.map(([name, value]) => {
     const card = create("div", "fact");
     card.append(create("small", "", name), create("strong", "", value));
     return card;
   }));
-  const chips = Object.entries(context).map(([name, value]) =>
-    create("span", "context-chip", `${label(name)}: ${label(value)}`),
-  );
-  $("context-chips").replaceChildren(...chips);
-  if (!chips.length) $("context-chips").append(create("span", "muted", "No optional respondent context recorded."));
 }
 
-function statementCard(title, statement, extraClass = "") {
-  const card = create("article", `detail-card ${extraClass}`.trim());
+function detailCard(title, value, turnIds = []) {
+  const card = create("article", "detail-card");
   card.append(create("h4", "", title));
-  if (!statement) {
-    card.append(create("p", "muted", "Not supported by this interview."));
-    return card;
-  }
-  card.append(create("p", "", statement.text));
-  card.append(evidenceLinks(statement.evidence_turn_ids));
+  card.append(create("p", value ? "" : "muted", value || "Not provided"));
+  if (turnIds.length) card.append(evidenceLinks(turnIds));
   return card;
 }
 
-function renderSynthesis(synthesis) {
-  $("synthesis-status").className = `badge ${synthesis.status}`;
-  $("synthesis-status").textContent = label(synthesis.status);
-  const container = $("synthesis-content");
-  container.replaceChildren();
-  if (synthesis.status !== "completed" || !synthesis.result) {
-    const message = synthesis.status === "failed"
-      ? `Synthesis failed (${label(synthesis.error_code)}). The transcript remains available for review.`
-      : "No completed synthesis is available for this session.";
-    container.append(create("div", "empty-panel", message));
-    return;
-  }
-  const result = synthesis.result;
-  const primary = create("article", "finding-card");
-  primary.append(create("h4", "", "Operational issue"));
-  primary.append(create("p", "", result.operational_issue.text));
-  primary.append(evidenceLinks(result.operational_issue.evidence_turn_ids));
-  container.append(primary);
-
-  const grid = create("div", "detail-grid");
-  grid.append(
-    statementCard("Guest or team impact", result.guest_impact),
-    statementCard("Reported frequency", result.reported_frequency),
-    statementCard("Reported severity", result.reported_severity),
-    statementCard("Workaround", result.workaround),
-    statementCard("Positive practice", result.positive_practice),
-    statementCard(
-      result.recommended_action ? `Recommended action · ${label(result.recommended_action.scope)}` : "Recommended action",
-      result.recommended_action,
-    ),
+function renderCaller(incident) {
+  const caller = incident.caller || {};
+  const location = incident.location;
+  $("caller-grid").replaceChildren(
+    detailCard("Caller-reported location", fieldValue(location), location?.evidence_turn_ids),
+    detailCard("Caller name", fieldValue(caller.name), caller.name?.evidence_turn_ids),
+    detailCard("Contact method", fieldValue(caller.contact), caller.contact?.evidence_turn_ids),
   );
-  (result.root_cause_hypotheses || []).forEach((hypothesis, index) => {
-    grid.append(statementCard(`Root-cause hypothesis ${index + 1}`, hypothesis));
-  });
-  (result.representative_quotes || []).forEach((quote) => {
-    const card = create("article", "detail-card");
-    card.append(create("h4", "", "Representative quote"));
-    card.append(create("blockquote", "", `“${quote.text}”`));
-    card.append(evidenceLinks([quote.turn_id]));
-    grid.append(card);
-  });
-  const gaps = create("article", "detail-card full");
-  gaps.append(create("h4", "", "Evidence gaps"));
-  gaps.append(create("p", "", (result.evidence_gaps || []).join(" · ") || "No gaps recorded by synthesis."));
-  grid.append(gaps);
-  container.append(grid);
 }
 
-function renderCoverage(coverage) {
-  const grid = $("coverage-grid");
-  grid.replaceChildren();
-  coverage.forEach((objective) => {
-    const card = create("article", "coverage-card");
-    const top = create("div", "coverage-top");
-    top.append(create("h4", "", label(objective.objective_id)), badge(objective.status, objective.status));
-    card.append(top);
-    const evidence = objective.evidence || [];
-    if (!evidence.length) card.append(create("p", "muted", "No structured evidence recorded."));
-    evidence.forEach((note) => {
-      const row = create("div", `evidence-note ${note.active ? "" : "superseded"}`.trim());
-      row.append(document.createTextNode(note.summary));
-      if (note.source_turn_id) row.append(evidenceLinks([note.source_turn_id]));
-      card.append(row);
-    });
-    grid.append(card);
+function renderSummary(incident) {
+  const summary = incident.summary;
+  $("confidence-badge").className = `badge ${statusClass(incident.confidence)}`;
+  $("confidence-badge").textContent = `Confidence: ${label(incident.confidence)}`;
+  const card = create("article", "finding-card");
+  card.append(create("h4", "", "Summary for human review"));
+  card.append(create("p", summary ? "" : "muted", fieldValue(summary) || "No AI summary is available."));
+  if (summary?.evidence_turn_ids?.length) card.append(evidenceLinks(summary.evidence_turn_ids));
+  $("summary-content").replaceChildren(card);
+}
+
+function renderDetails(incident) {
+  const description = incident.description;
+  const occurredAt = incident.occurred_at;
+  const urgency = incident.urgency || {};
+  const cards = [
+    detailCard("Incident description", fieldValue(description), description?.evidence_turn_ids),
+    detailCard("Date and time of occurrence", fieldValue(occurredAt), occurredAt?.evidence_turn_ids),
+    detailCard("Urgency rationale", urgency.rationale, urgency.evidence_turn_ids),
+  ];
+  (incident.relevant_details || []).forEach((detail, index) => {
+    cards.push(detailCard(`Relevant detail ${index + 1}`, fieldValue(detail), detail.evidence_turn_ids));
   });
+  cards.push(
+    detailCard(
+      "Evidence gaps",
+      (incident.evidence_gaps || []).join(" · ") || "No evidence gaps recorded.",
+    ),
+  );
+  $("detail-grid").replaceChildren(...cards);
 }
 
 function renderTranscript(turns) {
-  $("turn-count").textContent = `${turns.length} finalized turns`;
+  $("turn-count").textContent = `${turns.length} finalized ${turns.length === 1 ? "turn" : "turns"}`;
   const transcript = $("transcript");
   transcript.replaceChildren();
   if (!turns.length) {
@@ -320,18 +253,53 @@ function renderTranscript(turns) {
     return;
   }
   turns.forEach((turn) => {
-    const article = create("article", "turn");
+    const article = create("article", `turn ${turn.role}`);
     article.id = `transcript-${turn.id}`;
     const meta = create("div", "turn-meta");
-    meta.append(create("strong", "", turn.role), create("span", "", turn.id));
+    meta.append(
+      create("strong", "", turn.role),
+      create("span", "", turn.id),
+      create("time", "", dateTime(turn.created_at)),
+    );
     if (turn.interrupted) meta.append(badge("interrupted", "failed"));
     article.append(meta, create("p", "", turn.text));
     transcript.append(article);
   });
 }
 
+async function postReviewAction(action, payload) {
+  const id = incidentId(state.artifact || {});
+  if (!id) return;
+  const button = action === "acknowledge" ? $("acknowledge-button") : $("save-status-button");
+  button.disabled = true;
+  $("operator-message").className = "operator-message";
+  $("operator-message").textContent = "Saving…";
+  try {
+    const response = await fetch(`/api/incidents/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      headers: payload ? { "Content-Type": "application/json" } : {},
+      body: payload ? JSON.stringify(payload) : undefined,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Review update failed");
+    state.artifact.review = result.review;
+    renderReviewState(result.review, true);
+    $("operator-message").className = "operator-message success";
+    $("operator-message").textContent = action === "acknowledge"
+      ? "Incident acknowledged."
+      : `Status updated to ${result.review.status}.`;
+    await loadSessions();
+  } catch (error) {
+    $("operator-message").className = "operator-message error";
+    $("operator-message").textContent = error.message;
+    renderReviewState(state.artifact.review, true);
+  }
+}
+
 $("refresh-button").addEventListener("click", loadSessions);
 $("session-search").addEventListener("input", renderSessionList);
-$("signals-button").addEventListener("click", loadIntelligence);
-$("dimension-select").addEventListener("change", loadIntelligence);
+$("acknowledge-button").addEventListener("click", () => postReviewAction("acknowledge"));
+$("save-status-button").addEventListener("click", () =>
+  postReviewAction("status", { status: $("status-select").value }),
+);
 loadSessions();

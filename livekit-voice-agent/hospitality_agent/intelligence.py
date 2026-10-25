@@ -18,6 +18,12 @@ ALLOWED_GROUP_DIMENSIONS = {
     "role_category",
     "shift_type",
 }
+INCIDENT_REVIEW_STATUSES = (
+    "Pending Review",
+    "Under Review",
+    "Escalated",
+    "Resolved",
+)
 
 
 class IntelligenceStoreError(RuntimeError):
@@ -87,11 +93,81 @@ class IntelligenceStore:
                     ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS incident_records (
+                session_id TEXT PRIMARY KEY,
+                incident_id TEXT NOT NULL UNIQUE,
+                submission_status TEXT NOT NULL,
+                incident_schema_version TEXT NOT NULL,
+                incident_type TEXT NOT NULL,
+                subcategory TEXT NOT NULL,
+                caller_name TEXT,
+                caller_contact TEXT,
+                incident_location TEXT,
+                incident_description TEXT NOT NULL,
+                occurred_at TEXT,
+                urgency TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                human_review_required INTEGER NOT NULL DEFAULT 0,
+                escalation_status TEXT,
+                incident_json TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS operator_notifications (
+                notification_id TEXT PRIMARY KEY,
+                incident_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                location TEXT,
+                urgency TEXT NOT NULL,
+                status TEXT NOT NULL,
+                simulated INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                delivered_at REAL,
+                failure_reason TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS incident_reviews (
+                incident_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                acknowledged_at REAL,
+                updated_at REAL NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_signals_lookup
                 ON signals(signal_type, signal_key);
             CREATE INDEX IF NOT EXISTS idx_sessions_created
                 ON sessions(artifact_created_at);
             """
+        )
+        incident_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(incident_records)")
+        }
+        if "human_review_required" not in incident_columns:
+            self.connection.execute(
+                "ALTER TABLE incident_records ADD COLUMN "
+                "human_review_required INTEGER NOT NULL DEFAULT 0"
+            )
+        if "escalation_status" not in incident_columns:
+            self.connection.execute(
+                "ALTER TABLE incident_records ADD COLUMN escalation_status TEXT"
+            )
+        if "incident_id" not in incident_columns:
+            self.connection.execute(
+                "ALTER TABLE incident_records ADD COLUMN incident_id TEXT"
+            )
+        if "submission_status" not in incident_columns:
+            self.connection.execute(
+                "ALTER TABLE incident_records ADD COLUMN submission_status TEXT"
+            )
+        self.connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_incident_records_incident_id "
+            "ON incident_records(incident_id) WHERE incident_id IS NOT NULL"
         )
         self.connection.commit()
 
@@ -136,6 +212,21 @@ class IntelligenceStore:
             if session.get("status") == "completed"
             else []
         )
+        incident_record = artifact.get("incident_record")
+        incident_wrapper = artifact.get("incident") or {
+            "id": session.get("incident_id") or f"LEGACY-{session_id}",
+            "status": "Legacy Imported",
+        }
+        notification = artifact.get("operator_notification")
+        safety = artifact.get("safety") or {}
+        if incident_record is not None and not isinstance(incident_record, dict):
+            raise IntelligenceStoreError(
+                f"Artifact {artifact_id} has an invalid incident record"
+            )
+        if not isinstance(incident_wrapper, dict):
+            raise IntelligenceStoreError(f"Artifact {artifact_id} has invalid incident metadata")
+        if notification is not None and not isinstance(notification, dict):
+            raise IntelligenceStoreError(f"Artifact {artifact_id} has invalid notification")
         try:
             with self._lock, self.connection:
                 self.connection.execute(
@@ -187,6 +278,35 @@ class IntelligenceStore:
                     "DELETE FROM signals WHERE session_id = ?",
                     (session_id,),
                 )
+                self.connection.execute(
+                    "DELETE FROM incident_records WHERE session_id = ?",
+                    (session_id,),
+                )
+                self.connection.execute(
+                    "DELETE FROM operator_notifications WHERE session_id = ?",
+                    (session_id,),
+                )
+                if incident_record is not None:
+                    self._insert_incident_record(
+                        session_id,
+                        incident_record,
+                        incident_wrapper,
+                        safety,
+                    )
+                    self.connection.execute(
+                        """
+                        INSERT OR IGNORE INTO incident_reviews (
+                            incident_id, status, acknowledged_at, updated_at
+                        ) VALUES (?, ?, NULL, ?)
+                        """,
+                        (
+                            incident_wrapper["id"],
+                            "Pending Review",
+                            time.time(),
+                        ),
+                    )
+                if notification is not None:
+                    self._insert_notification(session_id, notification)
                 self.connection.executemany(
                     """
                     INSERT INTO signals (
@@ -209,6 +329,140 @@ class IntelligenceStore:
             raise IntelligenceStoreError(
                 f"Could not index artifact: {artifact_id}"
             ) from exc
+
+    def _insert_incident_record(
+        self,
+        session_id: str,
+        incident: dict[str, Any],
+        incident_wrapper: dict[str, Any],
+        safety: object,
+    ) -> None:
+        try:
+            caller = incident.get("caller") or {}
+            urgency = incident["urgency"]
+            incident_type = incident["incident_type"]
+            subcategory = incident["subcategory"]
+            description = self._field_value(incident["description"], required=True)
+            summary = self._field_value(incident["summary"], required=True)
+            urgency_value = urgency["classification"]
+            if not all(
+                isinstance(value, str) and value
+                for value in (incident_type, subcategory, urgency_value)
+            ):
+                raise ValueError("required incident fields must be non-empty strings")
+            if not isinstance(caller, dict) or not isinstance(urgency, dict):
+                raise ValueError("caller and urgency must be objects")
+            caller_name = self._field_value(caller.get("name"))
+            caller_contact = self._field_value(caller.get("contact"))
+            incident_location = self._field_value(incident.get("location"))
+            occurred_at = self._field_value(incident.get("occurred_at"))
+            if not isinstance(safety, dict):
+                raise ValueError("safety must be an object")
+            human_review_required = bool(safety.get("human_review_required", False))
+            escalation = safety.get("escalation") or {}
+            if not isinstance(escalation, dict):
+                raise ValueError("safety escalation must be an object")
+            escalation_status = escalation.get("status")
+            if escalation_status is not None and not isinstance(escalation_status, str):
+                raise ValueError("escalation status must be a string")
+            incident_id = incident_wrapper["id"]
+            submission_status = incident_wrapper["status"]
+            if not all(
+                isinstance(value, str) and value
+                for value in (incident_id, submission_status)
+            ):
+                raise ValueError("incident id and submission status are required")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise IntelligenceStoreError(
+                f"Incident record for session {session_id} is not indexable"
+            ) from exc
+
+        self.connection.execute(
+            """
+            INSERT INTO incident_records (
+                session_id, incident_id, submission_status,
+                incident_schema_version, incident_type, subcategory,
+                caller_name, caller_contact, incident_location,
+                incident_description, occurred_at, urgency, summary,
+                human_review_required, escalation_status, incident_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                incident_id,
+                submission_status,
+                str(incident.get("schema_version", "unknown")),
+                incident_type,
+                subcategory,
+                caller_name,
+                caller_contact,
+                incident_location,
+                description,
+                occurred_at,
+                urgency_value,
+                summary,
+                int(human_review_required),
+                escalation_status,
+                json.dumps(incident, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+
+    def _insert_notification(
+        self,
+        session_id: str,
+        notification: dict[str, Any],
+    ) -> None:
+        required = (
+            "notification_id",
+            "incident_id",
+            "category",
+            "summary",
+            "urgency",
+            "status",
+            "created_at",
+        )
+        if any(notification.get(key) in {None, ""} for key in required):
+            raise IntelligenceStoreError(
+                f"Operator notification for session {session_id} is not indexable"
+            )
+        if notification["status"] not in {"delivered", "queued", "failed"}:
+            raise IntelligenceStoreError(
+                f"Operator notification for session {session_id} has an invalid status"
+            )
+        self.connection.execute(
+            """
+            INSERT INTO operator_notifications (
+                notification_id, incident_id, session_id, category, summary,
+                location, urgency, status, simulated, created_at, delivered_at,
+                failure_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                notification["notification_id"],
+                notification["incident_id"],
+                session_id,
+                notification["category"],
+                notification["summary"],
+                notification.get("location"),
+                notification["urgency"],
+                notification["status"],
+                int(bool(notification.get("simulated", True))),
+                float(notification["created_at"]),
+                notification.get("delivered_at"),
+                notification.get("failure_reason"),
+            ),
+        )
+
+    @staticmethod
+    def _field_value(field: object, *, required: bool = False) -> str | None:
+        if field is None and not required:
+            return None
+        if not isinstance(field, dict):
+            raise ValueError("incident field must be an object")
+        value = field.get("value")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("incident field value must be a non-empty string")
+        return value
 
     @staticmethod
     def _signals_from_synthesis(
@@ -264,6 +518,93 @@ class IntelligenceStore:
         if not isinstance(artifact, dict):
             raise IntelligenceStoreError(f"Indexed session is unreadable: {session_id}")
         return artifact
+
+    def load_incident_record(self, session_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT incident_json FROM incident_records WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            raise IntelligenceStoreError(f"Incident record not found: {session_id}")
+        try:
+            incident = json.loads(row["incident_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise IntelligenceStoreError(
+                f"Incident record is unreadable: {session_id}"
+            ) from exc
+        if not isinstance(incident, dict):
+            raise IntelligenceStoreError(f"Incident record is unreadable: {session_id}")
+        return incident
+
+    def get_incident_review(self, incident_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self.connection.execute(
+                """
+                SELECT incident_id, status, acknowledged_at, updated_at
+                FROM incident_reviews
+                WHERE incident_id = ?
+                """,
+                (incident_id,),
+            ).fetchone()
+        if row is None:
+            raise IntelligenceStoreError(f"Incident review not found: {incident_id}")
+        return dict(row)
+
+    def acknowledge_incident(self, incident_id: str) -> dict[str, Any]:
+        now = time.time()
+        try:
+            with self._lock, self.connection:
+                cursor = self.connection.execute(
+                    """
+                    UPDATE incident_reviews
+                    SET acknowledged_at = COALESCE(acknowledged_at, ?),
+                        status = CASE
+                            WHEN status = 'Pending Review' THEN 'Under Review'
+                            ELSE status
+                        END,
+                        updated_at = ?
+                    WHERE incident_id = ?
+                    """,
+                    (now, now, incident_id),
+                )
+                if cursor.rowcount != 1:
+                    raise IntelligenceStoreError(
+                        f"Incident review not found: {incident_id}"
+                    )
+        except sqlite3.Error as exc:
+            raise IntelligenceStoreError(
+                f"Could not acknowledge incident: {incident_id}"
+            ) from exc
+        return self.get_incident_review(incident_id)
+
+    def update_incident_status(
+        self,
+        incident_id: str,
+        status: str,
+    ) -> dict[str, Any]:
+        if status not in INCIDENT_REVIEW_STATUSES:
+            raise ValueError(f"Unsupported incident status: {status}")
+        now = time.time()
+        try:
+            with self._lock, self.connection:
+                cursor = self.connection.execute(
+                    """
+                    UPDATE incident_reviews
+                    SET status = ?, updated_at = ?
+                    WHERE incident_id = ?
+                    """,
+                    (status, now, incident_id),
+                )
+                if cursor.rowcount != 1:
+                    raise IntelligenceStoreError(
+                        f"Incident review not found: {incident_id}"
+                    )
+        except sqlite3.Error as exc:
+            raise IntelligenceStoreError(
+                f"Could not update incident status: {incident_id}"
+            ) from exc
+        return self.get_incident_review(incident_id)
 
     def intelligence_snapshot(
         self,

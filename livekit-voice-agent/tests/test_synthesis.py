@@ -4,7 +4,8 @@ import json
 import unittest
 
 from hospitality_agent.models import TranscriptTurn
-from hospitality_agent.plans import POST_SHIFT_GUEST_EXPERIENCE
+from hospitality_agent.models import UrgencyClassification
+from hospitality_agent.plans import PARKING_COMPLAINT
 from hospitality_agent.state import InterviewState
 from hospitality_agent.synthesis import (
     SynthesisGenerationError,
@@ -37,48 +38,40 @@ def respondent_turn(turn_id: str, text: str, *, interrupted: bool = False) -> Tr
     )
 
 
+def sourced(value: str, *turn_ids: str) -> dict[str, object]:
+    return {"value": value, "evidence_turn_ids": list(turn_ids)}
+
+
 def valid_payload() -> dict[str, object]:
     return {
-        "operational_issue": {
-            "text": "Guests waited at check-in for room status updates.",
+        "schema_version": "1.0",
+        "incident_type": "parking_complaint",
+        "subcategory": "blocked_driveway",
+        "classification_evidence_turn_ids": ["turn-0001"],
+        "caller": {
+            "name": sourced("Maya Chen", "turn-0002"),
+            "contact": sourced("maya@example.com", "turn-0002"),
+        },
+        "location": sourced("14 Oak Street", "turn-0001"),
+        "description": sourced(
+            "A blue Honda sedan is blocking the caller's driveway.",
+            "turn-0001",
+        ),
+        "occurred_at": sourced("around 8:15 this morning", "turn-0001"),
+        "relevant_details": [
+            sourced("The caller cannot leave the driveway.", "turn-0001")
+        ],
+        "urgency": {
+            "classification": "priority",
+            "rationale": "Access is blocked, but no immediate danger was reported.",
             "evidence_turn_ids": ["turn-0001"],
         },
-        "guest_impact": {
-            "text": "Guests were frustrated and asked for a manager.",
-            "evidence_turn_ids": ["turn-0002"],
-        },
-        "root_cause_hypotheses": [
-            {
-                "text": "A delayed front-desk system may have contributed to stale room status.",
-                "evidence_turn_ids": ["turn-0002"],
-            }
-        ],
-        "reported_frequency": {
-            "text": "The respondent reported that it happened three times this week.",
-            "evidence_turn_ids": ["turn-0002"],
-        },
-        "reported_severity": None,
-        "workaround": {
-            "text": "The team called the housekeeping supervisor manually.",
-            "evidence_turn_ids": ["turn-0002"],
-        },
-        "positive_practice": {
-            "text": "The front-desk team kept guests updated.",
-            "evidence_turn_ids": ["turn-0002"],
-        },
-        "recommended_action": {
-            "text": "Pilot a room-status confirmation during shift handoff.",
-            "evidence_turn_ids": ["turn-0002"],
-            "scope": "pilot",
-        },
-        "representative_quotes": [
-            {
-                "text": "Guests were frustrated and two asked for a manager.",
-                "turn_id": "turn-0002",
-            }
-        ],
-        "confidence": "medium",
-        "evidence_gaps": ["No housekeeping perspective was collected."],
+        "summary": sourced(
+            "Caller reports a blue Honda sedan blocking a driveway at 14 Oak Street.",
+            "turn-0001",
+        ),
+        "confidence": "high",
+        "evidence_gaps": ["License plate was not provided."],
     }
 
 
@@ -87,29 +80,28 @@ class SynthesisServiceTests(unittest.IsolatedAsyncioTestCase):
         self.turns = [
             respondent_turn(
                 "turn-0001",
-                "Several guests waited at check-in because rooms were still marked dirty.",
+                "A blue Honda sedan has blocked my driveway at 14 Oak Street since "
+                "around 8:15 this morning, and I cannot get my car out.",
             ),
             respondent_turn(
                 "turn-0002",
-                "The front-desk system was delayed. It happened three times this week. "
-                "Guests were frustrated and two asked for a manager. We called the "
-                "housekeeping supervisor manually and kept guests updated. A room-status "
-                "confirmation during shift handoff could help.",
+                "My name is Maya Chen and my email is maya@example.com.",
             ),
         ]
-        self.state = InterviewState(POST_SHIFT_GUEST_EXPERIENCE)
+        self.state = InterviewState(PARKING_COMPLAINT)
 
     async def synthesize(self, payload: dict[str, object]):
-        generator = FakeGenerator(json.dumps(payload))
-        service = SynthesisService(generator)
+        service = SynthesisService(FakeGenerator(json.dumps(payload)))
         return await service.synthesize(turns=self.turns, state=self.state)
 
-    async def test_valid_evidence_grounded_result_is_accepted(self) -> None:
+    async def test_valid_incident_record_is_accepted(self) -> None:
         result = await self.synthesize(valid_payload())
 
-        self.assertEqual(result.confidence.value, "medium")
-        self.assertEqual(result.recommended_action.scope, "pilot")
-        self.assertEqual(result.representative_quotes[0].turn_id, "turn-0002")
+        self.assertEqual(result.incident_type, "parking_complaint")
+        self.assertEqual(result.subcategory, "blocked_driveway")
+        self.assertEqual(result.caller.name.value, "Maya Chen")
+        self.assertEqual(result.urgency.classification.value, "priority")
+        self.assertEqual(result.summary.evidence_turn_ids, ["turn-0001"])
 
     async def test_json_code_fence_is_tolerated(self) -> None:
         response = "```json\n" + json.dumps(valid_payload()) + "\n```"
@@ -117,16 +109,16 @@ class SynthesisServiceTests(unittest.IsolatedAsyncioTestCase):
 
         result = await service.synthesize(turns=self.turns, state=self.state)
 
-        self.assertEqual(result.operational_issue.evidence_turn_ids, ["turn-0001"])
+        self.assertEqual(result.location.value, "14 Oak Street")
 
     async def test_unknown_evidence_turn_is_rejected(self) -> None:
         payload = valid_payload()
-        payload["operational_issue"]["evidence_turn_ids"] = ["turn-9999"]
+        payload["description"]["evidence_turn_ids"] = ["turn-9999"]
 
         with self.assertRaisesRegex(SynthesisValidationError, "Unsupported evidence"):
             await self.synthesize(payload)
 
-    async def test_interrupted_respondent_turn_cannot_support_a_finding(self) -> None:
+    async def test_interrupted_turn_cannot_support_record(self) -> None:
         self.turns[0] = respondent_turn(
             "turn-0001",
             self.turns[0].text,
@@ -136,27 +128,34 @@ class SynthesisServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(SynthesisValidationError, "Unsupported evidence"):
             await self.synthesize(valid_payload())
 
-    async def test_invented_quote_is_rejected(self) -> None:
+    async def test_invented_contact_information_is_rejected(self) -> None:
         payload = valid_payload()
-        payload["representative_quotes"][0]["text"] = "A quote nobody said."
+        payload["caller"]["contact"] = sourced("555-0100", "turn-0002")
 
-        with self.assertRaisesRegex(SynthesisValidationError, "not verbatim"):
+        with self.assertRaisesRegex(SynthesisValidationError, "must appear verbatim"):
             await self.synthesize(payload)
 
-    async def test_invented_frequency_number_is_rejected(self) -> None:
+    async def test_incident_type_must_match_selected_category(self) -> None:
         payload = valid_payload()
-        payload["reported_frequency"]["text"] = "It happened twelve times this week."
+        payload["incident_type"] = "noise_complaint"
 
-        with self.assertRaisesRegex(SynthesisValidationError, "unsupported number"):
+        with self.assertRaisesRegex(SynthesisValidationError, "does not match"):
             await self.synthesize(payload)
 
-    async def test_organization_wide_overclaim_is_rejected(self) -> None:
-        payload = valid_payload()
-        payload["operational_issue"]["text"] = (
-            "This proves the issue happens across the company."
+    async def test_incident_record_cannot_downgrade_active_escalation(self) -> None:
+        self.state.update_urgency(
+            UrgencyClassification.URGENT,
+            "A potential emergency requires immediate human review.",
+            source_turn_id="turn-0001",
         )
+        payload = valid_payload()
+        payload["urgency"] = {
+            "classification": "routine",
+            "rationale": "Incorrect downgrade.",
+            "evidence_turn_ids": ["turn-0001"],
+        }
 
-        with self.assertRaisesRegex(SynthesisValidationError, "organization-wide claim"):
+        with self.assertRaisesRegex(SynthesisValidationError, "cannot downgrade"):
             await self.synthesize(payload)
 
     async def test_malformed_response_is_rejected(self) -> None:
@@ -181,25 +180,27 @@ class SynthesisServiceTests(unittest.IsolatedAsyncioTestCase):
             await service.synthesize(turns=[], state=self.state)
         self.assertEqual(generator.prompts, [])
 
-    def test_prompt_excludes_superseded_evidence(self) -> None:
+    def test_prompt_contains_timestamps_and_excludes_superseded_evidence(self) -> None:
         self.state.record_evidence(
-            "operational_context",
-            "Housekeeping failed to update the room.",
+            "vehicle_description",
+            "The vehicle is black.",
             sufficient=True,
-            source_turn_id="turn-0002",
+            source_turn_id="turn-0001",
         )
         self.state.correct_evidence(
-            "operational_context",
-            "The front-desk system was delayed.",
+            "vehicle_description",
+            "The vehicle is blue.",
             sufficient=True,
-            source_turn_id="turn-0002",
+            source_turn_id="turn-0001",
         )
         service = SynthesisService(FakeGenerator(json.dumps(valid_payload())))
 
         prompt = service.build_prompt(turns=self.turns, state=self.state)
 
-        self.assertNotIn("Housekeeping failed", prompt)
-        self.assertIn("front-desk system was delayed", prompt)
+        self.assertNotIn("vehicle is black", prompt)
+        self.assertIn("vehicle is blue", prompt)
+        self.assertIn("1700000000.000", prompt)
+        self.assertIn("Do not treat a\n  transcript capture timestamp", prompt)
 
 
 if __name__ == "__main__":

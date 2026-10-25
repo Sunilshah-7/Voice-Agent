@@ -19,7 +19,7 @@ from .models import ArtifactStatus, InterviewPlan, RespondentContext, Transcript
 from .state import InterviewState
 
 
-ARTIFACT_SCHEMA_VERSION = "1.1"
+ARTIFACT_SCHEMA_VERSION = "2.1"
 _ALLOWED_ROLES = {"user": "respondent", "assistant": "interviewer"}
 
 
@@ -57,6 +57,7 @@ class TranscriptRecorder:
     ) -> None:
         self.plan = plan
         self.session_id = session_id or str(uuid.uuid4())
+        self.incident_id = f"INC-{uuid.uuid4()}"
         self.output_dir = Path(
             output_dir or os.getenv("SHIFT_SIGNAL_OUTPUT_DIR", "outputs")
         )
@@ -75,6 +76,10 @@ class TranscriptRecorder:
             if turn.role == "respondent":
                 return turn.id
         return None
+
+    @property
+    def artifact_id(self) -> str:
+        return self._artifact_filename()
 
     def record_chat_message(self, message: llm.ChatMessage) -> TranscriptTurn | None:
         role = _ALLOWED_ROLES.get(message.role)
@@ -109,6 +114,8 @@ class TranscriptRecorder:
         *,
         usage: Mapping[str, int | float] | None = None,
         synthesis: Mapping[str, object] | None = None,
+        submission_status: str | None = None,
+        notification: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         status = (
             ArtifactStatus.COMPLETED
@@ -130,10 +137,18 @@ class TranscriptRecorder:
                 }
             )
 
+        synthesis_payload = dict(synthesis or {"status": "not_run"})
+        incident_record = (
+            synthesis_payload.get("result")
+            if synthesis_payload.get("status") == "completed"
+            and isinstance(synthesis_payload.get("result"), dict)
+            else None
+        )
         return {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
             "session": {
                 "id": self.session_id,
+                "incident_id": self.incident_id,
                 "status": status.value,
                 "interview_phase": state.phase.value,
                 "started_at": self.started_at,
@@ -152,9 +167,36 @@ class TranscriptRecorder:
                 "title": self.plan.title,
             },
             "respondent_context": context,
+            "safety": {
+                "urgency": state.urgency.value,
+                "urgency_rationale": state.urgency_rationale,
+                "human_review_required": state.human_review_required,
+                "review_flag": (
+                    "Urgent — Human Review Required"
+                    if state.human_review_required
+                    else None
+                ),
+                "escalation": (
+                    {
+                        "status": state.escalation_status,
+                        "source_turn_id": state.escalation_source_turn_id,
+                        "elapsed_seconds": state.escalation_elapsed_seconds,
+                        "simulated": True,
+                    }
+                    if state.escalation_status is not None
+                    else None
+                ),
+            },
             "transcript": [asdict(turn) for turn in self.turns],
             "objective_coverage": coverage,
-            "synthesis": dict(synthesis or {"status": "not_run"}),
+            "incident_record": incident_record,
+            "incident": {
+                "id": self.incident_id,
+                "status": submission_status or "Not Submitted",
+                "record": incident_record,
+            },
+            "operator_notification": dict(notification) if notification else None,
+            "synthesis": synthesis_payload,
             "usage": dict(usage or {}),
         }
 
@@ -164,11 +206,26 @@ class TranscriptRecorder:
         *,
         usage: Mapping[str, int | float] | None = None,
         synthesis: Mapping[str, object] | None = None,
+        submission_status: str | None = None,
+        notification: Mapping[str, object] | None = None,
     ) -> Path:
         if self._finalized_path is not None:
             return self._finalized_path
 
-        artifact = self.build_artifact(state, usage=usage, synthesis=synthesis)
+        artifact = self.build_artifact(
+            state,
+            usage=usage,
+            synthesis=synthesis,
+            submission_status=submission_status,
+            notification=notification,
+        )
+        return self.write_artifact(artifact)
+
+    def write_artifact(self, artifact: Mapping[str, object]) -> Path:
+        """Atomically persist a prebuilt artifact; repeated calls return the first path."""
+        if self._finalized_path is not None:
+            return self._finalized_path
+
         final_path = self.output_dir / self._artifact_filename()
         temp_path: Path | None = None
         try:

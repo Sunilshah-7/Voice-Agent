@@ -1,4 +1,4 @@
-"""Versioned hospitality interview plans shipped with the prototype."""
+"""Versioned non-emergency call-intake plans shipped with the prototype."""
 
 from __future__ import annotations
 
@@ -7,255 +7,270 @@ import json
 from .models import InterviewPlan, ResearchObjective
 
 
-POST_SHIFT_GUEST_EXPERIENCE = InterviewPlan(
-    id="post_shift_guest_experience",
-    version="1.0",
-    title="Post-shift guest-experience debrief",
-    business_goal=(
-        "Understand what most affected the guest experience during a shift, why it "
-        "happened, and which practical improvement deserves attention."
+_OPENING_PREFIX = (
+    "Hi, I'm ShiftSignal, an AI non-emergency call intake agent. I can collect "
+    "information for human review, but I am not a dispatcher and cannot send help. "
+    "If anyone is in immediate danger or needs urgent police, fire, or medical help, "
+    "call 911 or your local emergency number now. You can skip a question or end the "
+    "call at any time. Please do not share names or contact information unless a later "
+    "step specifically requests it. "
+)
+
+_CLOSING_MESSAGE = (
+    "Thank you. The information you provided can now be forwarded for human review. "
+    "I cannot promise a response, enforcement action, or outcome."
+)
+
+_OPTIONAL_CALLER_CONTACT = ResearchObjective(
+    id="caller_contact",
+    goal="Offer the caller an optional way to provide a name and contact method for follow-up.",
+    evidence_needed=(
+        "An optional caller name and contact method, a preference to remain unnamed, or a skip."
     ),
-    respondent_type="Hotel frontline employee or shift supervisor",
-    target_duration_seconds=360,
-    max_respondent_turns=12,
-    opening_message=(
-        "Hi, I'm ShiftSignal, an AI interviewer. I'd like to hear about your shift "
-        "so your team can understand what is helping or hurting the guest experience. "
-        "This is not a performance evaluation. Please don't share guest names, room "
-        "numbers, or coworkers' names. You can skip any question or stop at any time. "
-        "To begin, what happened during your shift that most affected a guest's experience?"
+    suggested_probes=(
+        "Would you like to leave a name and contact method for follow-up? This is optional.",
     ),
-    closing_message=(
-        "Thank you for sharing that. Your experience will be reviewed as feedback, "
-        "but I can't promise a particular action or outcome."
-    ),
-    objectives=(
-        ResearchObjective(
-            id="primary_event",
-            goal="Identify the event that most affected a guest's experience.",
-            evidence_needed="A concrete event, or a clear statement that no notable event occurred.",
-            suggested_probes=("What happened?", "Could you walk me through a specific example?"),
-        ),
-        ResearchObjective(
-            id="guest_journey",
-            goal="Locate where the event occurred in the guest journey.",
-            evidence_needed="The service moment or operational handoff involved.",
-            suggested_probes=("At what point in the guest's experience did this occur?",),
-        ),
-        ResearchObjective(
-            id="operational_context",
-            goal="Understand the operational conditions behind the event.",
-            evidence_needed="Observed conditions, process breakdowns, or handoffs without assigning blame.",
-            suggested_probes=("What seemed to lead to that?", "Which part of the process broke down?"),
-        ),
-        ResearchObjective(
-            id="recurrence",
-            goal="Learn whether the event appears isolated or recurring.",
-            evidence_needed="The respondent's own description of frequency; never invent a number.",
-            suggested_probes=("Was this unusual, or have you seen it before?",),
-        ),
-        ResearchObjective(
-            id="impact",
-            goal="Capture the consequence for guests and staff.",
-            evidence_needed="A concrete observed or reported effect, clearly distinguished from inference.",
-            suggested_probes=("How did that affect the guest or your team?",),
-        ),
-        ResearchObjective(
-            id="workaround",
-            goal="Capture how staff currently handle the problem.",
-            evidence_needed="A workaround, escalation, or a clear statement that none exists.",
-            suggested_probes=("What did the team do in the moment?",),
-        ),
-        ResearchObjective(
-            id="improvement",
-            goal="Ask for one realistically scoped improvement.",
-            evidence_needed="A respondent-proposed change, or a clear statement that they do not know.",
-            suggested_probes=("What is one change that could make this work better?",),
-        ),
-        ResearchObjective(
-            id="positive_practice",
-            goal="Capture something the team handled well.",
-            evidence_needed="A useful positive practice, or a clear statement that none comes to mind.",
-            suggested_probes=("What did your team handle especially well?",),
-        ),
-    ),
-    core_objective_ids=("primary_event", "impact", "improvement"),
 )
 
 
-NEW_PROCESS_ROLLOUT = InterviewPlan(
-    id="new_process_rollout",
+GENERAL_INQUIRY = InterviewPlan(
+    id="general_inquiry",
     version="1.0",
-    title="New process or training rollout check-in",
+    title="General non-emergency inquiry or request",
     business_goal=(
-        "Understand how a new hospitality process or training is working in practice, "
-        "where staff need support, and which small adjustment should be reviewed."
+        "Understand and document a routine public-safety inquiry or service request that "
+        "does not clearly fit parking, lost-pet, or noise-complaint intake."
     ),
-    respondent_type="Hotel employee affected by a recent process or training change",
-    target_duration_seconds=360,
-    max_respondent_turns=12,
+    respondent_type="Community member with a non-emergency inquiry or request",
+    target_duration_seconds=300,
+    max_respondent_turns=10,
     opening_message=(
-        "Hi, I'm ShiftSignal, an AI interviewer. I'd like to understand how the new "
-        "process or training is working during real shifts. This is not a performance "
-        "evaluation. Please don't share guest names, room numbers, or coworkers' names. "
-        "You can skip any question or stop at any time. To begin, what changed in your "
-        "work, and how has it gone so far?"
+        _OPENING_PREFIX
+        + "I can help with parking complaints, missing or found pets, noise complaints, "
+        "and other routine requests. What can I help you with today?"
     ),
-    closing_message=(
-        "Thank you for sharing that. Your experience will be reviewed as feedback, "
-        "but I can't promise a particular action or outcome."
-    ),
+    closing_message=_CLOSING_MESSAGE,
     objectives=(
         ResearchObjective(
-            id="rollout_experience",
-            goal="Establish which change the respondent experienced and how it works in practice.",
-            evidence_needed="A concrete process or training change and a real shift example.",
-            suggested_probes=("Could you walk me through using it during a shift?",),
-        ),
-        ResearchObjective(
-            id="expectation_clarity",
-            goal="Understand whether the new expectations were clear.",
-            evidence_needed="What the respondent understood, including any uncertain step.",
-            suggested_probes=("Which part felt clear or unclear?",),
-        ),
-        ResearchObjective(
-            id="preparedness",
-            goal="Learn whether training, tools, and access prepared staff for the change.",
-            evidence_needed="Observed readiness or a specific missing resource.",
-            suggested_probes=("What helped you feel prepared?",),
-        ),
-        ResearchObjective(
-            id="workflow_effect",
-            goal="Capture how the change affects the guest-facing workflow.",
-            evidence_needed="A concrete effect on timing, handoffs, consistency, guests, or staff.",
-            suggested_probes=("How did it affect the shift or guest experience?",),
-        ),
-        ResearchObjective(
-            id="friction",
-            goal="Identify where the new process is difficult to apply.",
+            id="request_type",
+            goal="Identify what the caller is asking about and whether a primary category applies.",
             evidence_needed=(
-                "A specific point of friction, or a clear report that none was encountered."
+                "Parking complaint, lost or found pet, noise complaint, another routine "
+                "request, or a clear statement that the caller is unsure."
             ),
-            suggested_probes=("Where does the process become difficult to follow?",),
+            suggested_probes=("What would you like help with today?",),
         ),
         ResearchObjective(
-            id="support_or_workaround",
-            goal="Capture support used or workarounds created by staff.",
-            evidence_needed=(
-                "A support path, workaround, or clear statement that neither was needed."
-            ),
-            suggested_probes=("What do you do when that happens?",),
+            id="request_details",
+            goal="Capture the facts needed to understand the inquiry or request.",
+            evidence_needed="A concise firsthand description without speculation or unnecessary identifiers.",
+            suggested_probes=("What happened, or what information do you need?",),
         ),
         ResearchObjective(
-            id="improvement",
-            goal="Ask for one realistically scoped rollout adjustment.",
-            evidence_needed="A respondent-proposed adjustment, or a clear statement of uncertainty.",
-            suggested_probes=("What one adjustment would make this easier to use?",),
+            id="location",
+            goal="Capture the relevant location when one is needed to review the request.",
+            evidence_needed="A location, nearby landmark, or a clear statement that location is not relevant.",
+            suggested_probes=("Where is this happening?",),
         ),
         ResearchObjective(
-            id="positive_practice",
-            goal="Capture one part of the rollout worth retaining.",
-            evidence_needed="A useful element to preserve, or a clear statement that none comes to mind.",
-            suggested_probes=("What part should stay as it is?",),
+            id="timing",
+            goal="Capture when the issue happened and whether it is still occurring.",
+            evidence_needed="Reported timing and current status, or confirmation that timing is not relevant.",
+            suggested_probes=("When did this happen, and is it still happening?",),
         ),
+        ResearchObjective(
+            id="requested_outcome",
+            goal="Understand what information or follow-up the caller is seeking.",
+            evidence_needed="The caller's requested outcome or a clear statement that they are unsure.",
+            suggested_probes=("What would you like the reviewing team to help with?",),
+        ),
+        _OPTIONAL_CALLER_CONTACT,
     ),
-    core_objective_ids=("rollout_experience", "workflow_effect", "improvement"),
+    core_objective_ids=("request_type", "request_details"),
 )
 
 
-RECURRING_SERVICE_BREAKDOWN = InterviewPlan(
-    id="recurring_service_breakdown",
+PARKING_COMPLAINT = InterviewPlan(
+    id="parking_complaint",
     version="1.0",
-    title="Recurring service-breakdown investigation",
+    title="Parking complaint intake",
     business_goal=(
-        "Understand a recurring hospitality service breakdown, its observed conditions "
-        "and impact, and a proportionate next step for review or testing."
+        "Document an illegal-parking, blocked-driveway, or potentially abandoned-vehicle "
+        "complaint accurately enough for human review."
     ),
-    respondent_type="Hotel employee familiar with a recurring service problem",
-    target_duration_seconds=420,
-    max_respondent_turns=14,
+    respondent_type="Community member reporting a non-emergency parking concern",
+    target_duration_seconds=300,
+    max_respondent_turns=10,
     opening_message=(
-        "Hi, I'm ShiftSignal, an AI interviewer. I'd like to understand a recurring "
-        "service problem from your firsthand experience. This is not a performance "
-        "evaluation or an investigation of individuals. Please don't share guest names, "
-        "room numbers, or coworkers' names. You can skip any question or stop at any "
-        "time. To begin, what service problem have you seen happen more than once?"
+        _OPENING_PREFIX
+        + "I'll collect the details of your parking concern for review. Is this about "
+        "illegal parking, a blocked driveway, an abandoned vehicle, or something else?"
     ),
-    closing_message=(
-        "Thank you for sharing that. Your experience will be reviewed as feedback, "
-        "but I can't promise a particular action or outcome."
-    ),
+    closing_message=_CLOSING_MESSAGE,
     objectives=(
         ResearchObjective(
-            id="breakdown_event",
-            goal="Define the recurring service breakdown using a firsthand example.",
-            evidence_needed="A concrete observed event rather than a general accusation.",
-            suggested_probes=("What happened in the most recent example?",),
+            id="parking_issue",
+            goal="Classify the parking concern without making a legal determination.",
+            evidence_needed=(
+                "The caller's report of illegal parking, a blocked driveway, an abandoned "
+                "vehicle, or another parking concern."
+            ),
+            suggested_probes=("What kind of parking problem are you reporting?",),
         ),
         ResearchObjective(
-            id="journey_stage",
-            goal="Locate the breakdown in the guest journey or operational handoff.",
-            evidence_needed="The service moment, system step, or handoff involved.",
-            suggested_probes=("Where in the service process does it occur?",),
+            id="location",
+            goal="Capture where the vehicle is located.",
+            evidence_needed="A street, intersection, address, or nearby landmark sufficient for review.",
+            suggested_probes=("Where is the vehicle located?",),
         ),
         ResearchObjective(
-            id="observed_conditions",
-            goal="Capture conditions present when the breakdown occurs without assigning blame.",
-            evidence_needed="Firsthand conditions separated from inferred causes.",
-            suggested_probes=("What conditions have you noticed when it happens?",),
+            id="vehicle_description",
+            goal="Capture observable vehicle details that can distinguish it.",
+            evidence_needed="Known make, model, color, body type, or plate; unknown details remain unknown.",
+            suggested_probes=("How would you describe the vehicle?",),
+        ),
+        ResearchObjective(
+            id="timing_and_duration",
+            goal="Capture when the vehicle was observed and how long it may have been there.",
+            evidence_needed="Observed time or duration stated in the caller's own terms.",
+            suggested_probes=("When did you notice it, and how long has it been there?",),
+        ),
+        ResearchObjective(
+            id="observed_impact",
+            goal="Document what the vehicle is blocking or affecting.",
+            evidence_needed="A firsthand impact, such as blocked access, or a clear report of no known impact.",
+            suggested_probes=("What access or area is the vehicle affecting?",),
+        ),
+        _OPTIONAL_CALLER_CONTACT,
+    ),
+    core_objective_ids=("parking_issue", "location", "vehicle_description"),
+)
+
+
+LOST_PET = InterviewPlan(
+    id="lost_pet",
+    version="1.0",
+    title="Missing or found pet intake",
+    business_goal=(
+        "Document a missing dog or cat, or a found animal, with enough observable detail "
+        "and location information for human review."
+    ),
+    respondent_type="Community member reporting a missing or found animal",
+    target_duration_seconds=300,
+    max_respondent_turns=10,
+    opening_message=(
+        _OPENING_PREFIX
+        + "I'll collect information about the animal for review. Are you reporting a "
+        "missing pet or an animal you found?"
+    ),
+    closing_message=_CLOSING_MESSAGE,
+    objectives=(
+        ResearchObjective(
+            id="pet_report_type",
+            goal="Determine whether the caller is reporting a missing pet or a found animal.",
+            evidence_needed="Missing, found, or an accurate statement that the caller is unsure.",
+            suggested_probes=("Is the animal missing or found?",),
+        ),
+        ResearchObjective(
+            id="animal_description",
+            goal="Capture observable details that can identify the animal.",
+            evidence_needed=(
+                "Known species, breed or type, size, color, markings, collar, tag, and other "
+                "distinctive features without inventing unknown details."
+            ),
+            suggested_probes=("What does the animal look like?",),
+        ),
+        ResearchObjective(
+            id="last_known_location",
+            goal="Capture where the animal was last seen or found.",
+            evidence_needed="A location, nearby landmark, and direction of travel when known.",
+            suggested_probes=("Where and in which direction was the animal last seen?",),
+        ),
+        ResearchObjective(
+            id="timing",
+            goal="Capture when the animal went missing or was found.",
+            evidence_needed="The caller's best available date and time, with uncertainty preserved.",
+            suggested_probes=("When was the animal last seen or found?",),
+        ),
+        ResearchObjective(
+            id="current_situation",
+            goal="Understand the animal's current observed situation.",
+            evidence_needed=(
+                "Whether the animal is contained, roaming, injured, or behaving aggressively, "
+                "based only on what the caller observed."
+            ),
+            suggested_probes=("What is the animal doing now, if you can still see it?",),
+        ),
+        _OPTIONAL_CALLER_CONTACT,
+    ),
+    core_objective_ids=("pet_report_type", "animal_description", "last_known_location"),
+)
+
+
+NOISE_COMPLAINT = InterviewPlan(
+    id="noise_complaint",
+    version="1.0",
+    title="Noise complaint intake",
+    business_goal=(
+        "Document a loud-party, construction-noise, or neighborhood-disturbance complaint "
+        "accurately enough for human review."
+    ),
+    respondent_type="Community member reporting a non-emergency noise concern",
+    target_duration_seconds=300,
+    max_respondent_turns=10,
+    opening_message=(
+        _OPENING_PREFIX
+        + "I'll collect the details of your noise concern for review. Is the noise from "
+        "a party, construction, a neighborhood disturbance, or something else?"
+    ),
+    closing_message=_CLOSING_MESSAGE,
+    objectives=(
+        ResearchObjective(
+            id="noise_source",
+            goal="Identify the reported source and character of the noise.",
+            evidence_needed="A party, construction, neighborhood disturbance, or another described source.",
+            suggested_probes=("What kind of noise are you hearing?",),
+        ),
+        ResearchObjective(
+            id="location",
+            goal="Capture where the noise appears to be coming from.",
+            evidence_needed="An address, street, intersection, unit area, or nearby landmark when known.",
+            suggested_probes=("Where does the noise seem to be coming from?",),
+        ),
+        ResearchObjective(
+            id="timing_and_duration",
+            goal="Capture when the noise began, its duration, and whether it is ongoing.",
+            evidence_needed="Observed start time or duration and current status, with uncertainty preserved.",
+            suggested_probes=("When did it begin, and is it still happening?",),
         ),
         ResearchObjective(
             id="recurrence",
-            goal="Preserve how often and under what circumstances it recurs.",
-            evidence_needed=(
-                "The respondent's wording about frequency or pattern; never an invented number."
-            ),
-            suggested_probes=("When have you seen it happen again?",),
+            goal="Capture whether the disturbance is isolated or recurring.",
+            evidence_needed="The caller's own description of frequency; never an invented count.",
+            suggested_probes=("Is this the first time, or has it happened before?",),
         ),
         ResearchObjective(
-            id="impact",
-            goal="Capture the observed effect on guests, staff, or service delivery.",
-            evidence_needed="A specific consequence grounded in the respondent's experience.",
-            suggested_probes=("What happens to guests or the team when it occurs?",),
+            id="observed_impact",
+            goal="Document the effect of the noise without exaggeration.",
+            evidence_needed="A concrete effect described by the caller, or a clear report of no additional impact.",
+            suggested_probes=("How is the noise affecting you or the surrounding area?",),
         ),
-        ResearchObjective(
-            id="workaround",
-            goal="Understand how staff currently contain or recover from the breakdown.",
-            evidence_needed="A workaround, escalation, or clear statement that none exists.",
-            suggested_probes=("How do you manage it in the moment?",),
-        ),
-        ResearchObjective(
-            id="prior_response",
-            goal="Learn what has already been tried without asking who was responsible.",
-            evidence_needed="A process change or prior response and its observed result.",
-            suggested_probes=("What has already been tried, and what happened?",),
-        ),
-        ResearchObjective(
-            id="improvement",
-            goal="Ask for one realistically scoped next step.",
-            evidence_needed="A review, investigation, or pilot suggested by the respondent.",
-            suggested_probes=("What small next step would be worth testing?",),
-        ),
-        ResearchObjective(
-            id="positive_practice",
-            goal="Capture a recovery practice worth retaining.",
-            evidence_needed="A useful practice, or a clear statement that none comes to mind.",
-            suggested_probes=("What has the team done well when recovering?",),
-        ),
+        _OPTIONAL_CALLER_CONTACT,
     ),
-    core_objective_ids=("breakdown_event", "impact", "improvement"),
+    core_objective_ids=("noise_source", "location", "timing_and_duration"),
 )
 
 
 INTERVIEW_PLANS: dict[str, InterviewPlan] = {
     plan.id: plan
     for plan in (
-        POST_SHIFT_GUEST_EXPERIENCE,
-        NEW_PROCESS_ROLLOUT,
-        RECURRING_SERVICE_BREAKDOWN,
+        GENERAL_INQUIRY,
+        PARKING_COMPLAINT,
+        LOST_PET,
+        NOISE_COMPLAINT,
     )
 }
-DEFAULT_INTERVIEW_PLAN = POST_SHIFT_GUEST_EXPERIENCE
+DEFAULT_INTERVIEW_PLAN = GENERAL_INQUIRY
 
 
 def get_interview_plan(plan_id: str | None) -> InterviewPlan:
@@ -272,7 +287,11 @@ def get_interview_plan(plan_id: str | None) -> InterviewPlan:
 
 
 def interview_plan_from_job_metadata(raw_metadata: str | None) -> InterviewPlan:
-    """Select a plan from the optional top-level LiveKit metadata field."""
+    """Select a plan from optional LiveKit metadata.
+
+    ``call_category`` is the public domain term. ``interview_plan_id`` remains accepted
+    so existing LiveKit dispatch metadata does not break during the domain migration.
+    """
     if not raw_metadata:
         return DEFAULT_INTERVIEW_PLAN
     try:
@@ -281,7 +300,7 @@ def interview_plan_from_job_metadata(raw_metadata: str | None) -> InterviewPlan:
         raise ValueError("LiveKit job metadata must be valid JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("LiveKit job metadata must be a JSON object")
-    plan_id = payload.get("interview_plan_id")
+    plan_id = payload.get("call_category", payload.get("interview_plan_id"))
     if plan_id is not None and not isinstance(plan_id, str):
-        raise ValueError("interview_plan_id must be a string")
+        raise ValueError("call_category must be a string")
     return get_interview_plan(plan_id)

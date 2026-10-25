@@ -4,127 +4,104 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>ShiftSignal Review</title>
+    <title>ShiftSignal Incident Review</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" defer></script>
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="ShiftSignal review home">
+      <a class="brand" href="/" aria-label="ShiftSignal incident review home">
         <span class="brand-mark" aria-hidden="true">S</span>
-        <span><strong>ShiftSignal</strong><small>Interview review</small></span>
+        <span><strong>ShiftSignal</strong><small>Incident review</small></span>
       </a>
-      <div class="top-actions">
-        <button id="signals-button" class="signals-button" type="button">Signals overview</button>
-        <div class="local-pill"><span></span> Local intelligence</div>
-      </div>
+      <div class="local-pill"><span></span> Local review workspace</div>
     </header>
 
     <main class="app-shell">
-      <aside class="session-rail" aria-label="Interview sessions">
+      <aside class="session-rail" aria-label="Incident queue">
         <div class="rail-heading">
-          <div><p class="eyebrow">Research library</p><h1>Interviews</h1></div>
-          <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh sessions">↻</button>
+          <div><p class="eyebrow">Operator queue</p><h1>Incidents</h1></div>
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh incidents">↻</button>
         </div>
         <label class="search-box">
           <span aria-hidden="true">⌕</span>
-          <input id="session-search" type="search" placeholder="Filter interviews" autocomplete="off">
+          <input id="session-search" type="search" placeholder="ID, type, location…" autocomplete="off">
         </label>
         <p id="session-count" class="session-count"></p>
         <div id="session-list" class="session-list"></div>
       </aside>
 
-      <section id="detail" class="detail" aria-live="polite">
+      <section class="detail" aria-live="polite">
         <div id="empty-state" class="empty-state">
           <div class="empty-mark" aria-hidden="true">S</div>
-          <p class="eyebrow">Evidence before interpretation</p>
-          <h2>Select an interview to review</h2>
-          <p>Inspect the finding, its supporting turns, objective coverage, and the complete finalized transcript.</p>
-        </div>
-
-        <div id="intelligence-content" class="review-content" hidden>
-          <section class="review-header">
-            <div>
-              <p class="eyebrow">Cross-interview intelligence</p>
-              <h2>Operational signals</h2>
-              <p class="muted">Thresholded patterns with direct links to every supporting interview.</p>
-            </div>
-            <label class="dimension-control">
-              <span>Group by</span>
-              <select id="dimension-select">
-                <option value="department">Department</option>
-                <option value="property_id">Property</option>
-                <option value="role_category">Role category</option>
-                <option value="shift_type">Shift type</option>
-              </select>
-            </label>
-          </section>
-
-          <aside class="scope-note">
-            <strong>Threshold protection is active.</strong>
-            Patterns below three supporting interviews are withheld. Counts describe interviews, not verified incidents or unique employees.
-          </aside>
-
-          <div id="intelligence-facts" class="facts-grid intelligence-facts"></div>
-
-          <section aria-labelledby="trends-title">
-            <div class="section-heading"><div><p class="eyebrow">Recent movement</p><h3 id="trends-title">Emerging and increasing</h3></div></div>
-            <div id="trend-signals" class="signal-grid"></div>
-          </section>
-
-          <section aria-labelledby="issues-title">
-            <div class="section-heading"><div><p class="eyebrow">Repeated evidence</p><h3 id="issues-title">Recurring issues</h3></div></div>
-            <div id="issue-signals" class="signal-grid"></div>
-          </section>
-
-          <section aria-labelledby="practices-title">
-            <div class="section-heading"><div><p class="eyebrow">Transfer candidates</p><h3 id="practices-title">Positive practices</h3></div></div>
-            <div id="practice-signals" class="signal-grid"></div>
-          </section>
-
-          <section aria-labelledby="limits-title">
-            <div class="section-heading"><div><p class="eyebrow">Interpretation guardrails</p><h3 id="limits-title">What these signals do not prove</h3></div></div>
-            <ul id="intelligence-limitations" class="limitations"></ul>
-          </section>
+          <p class="eyebrow">Human review required</p>
+          <h2>Select an incident</h2>
+          <p>Review the caller-reported facts, AI summary, notification state, and complete finalized transcript.</p>
         </div>
 
         <div id="review-content" class="review-content" hidden>
-          <section class="review-header">
+          <section class="review-header incident-header">
             <div>
               <div id="header-badges" class="badge-row"></div>
-              <h2 id="plan-title"></h2>
-              <p id="session-subtitle" class="muted"></p>
+              <h2 id="incident-id"></h2>
+              <p id="incident-subtitle" class="muted"></p>
             </div>
-            <div id="confidence-card" class="confidence-card"></div>
+            <div id="urgency-card" class="confidence-card"></div>
           </section>
 
-          <aside class="scope-note">
-            <strong>One interview, one perspective.</strong>
-            This artifact supports review and follow-up; it does not establish a property-wide trend.
+          <aside id="urgent-alert" class="urgent-alert" hidden>
+            <strong>Urgent — Human Review Required</strong>
+            <span>Prioritize acknowledgment and follow established human escalation procedures.</span>
           </aside>
 
-          <section aria-labelledby="context-title">
-            <div class="section-heading"><div><p class="eyebrow">Session context</p><h3 id="context-title">Interview record</h3></div></div>
-            <div id="session-facts" class="facts-grid"></div>
-            <div id="context-chips" class="context-chips"></div>
-          </section>
-
-          <section aria-labelledby="finding-title">
-            <div class="section-heading">
-              <div><p class="eyebrow">Evidence-grounded output</p><h3 id="finding-title">Primary finding</h3></div>
-              <span id="synthesis-status" class="badge"></span>
+          <section class="operator-panel" aria-labelledby="operator-title">
+            <div>
+              <p class="eyebrow">Operator workflow</p>
+              <h3 id="operator-title">Review status</h3>
+              <p id="acknowledgment-text" class="muted"></p>
             </div>
-            <div id="synthesis-content"></div>
+            <div class="operator-actions">
+              <label class="status-control">
+                <span>Status</span>
+                <select id="status-select">
+                  <option>Pending Review</option>
+                  <option>Under Review</option>
+                  <option>Escalated</option>
+                  <option>Resolved</option>
+                </select>
+              </label>
+              <button id="acknowledge-button" class="secondary-button" type="button">Acknowledge</button>
+              <button id="save-status-button" class="primary-button" type="button">Update status</button>
+            </div>
+            <p id="operator-message" class="operator-message" role="status"></p>
           </section>
 
-          <section aria-labelledby="coverage-title">
-            <div class="section-heading"><div><p class="eyebrow">Research map</p><h3 id="coverage-title">Objective coverage</h3></div></div>
-            <div id="coverage-grid" class="coverage-grid"></div>
+          <section aria-labelledby="overview-title">
+            <div class="section-heading"><div><p class="eyebrow">Incident overview</p><h3 id="overview-title">Reported details</h3></div></div>
+            <div id="incident-facts" class="facts-grid"></div>
+          </section>
+
+          <section aria-labelledby="caller-title">
+            <div class="section-heading"><div><p class="eyebrow">Caller-reported context</p><h3 id="caller-title">Location & contact</h3></div></div>
+            <div id="caller-grid" class="detail-grid"></div>
+          </section>
+
+          <section aria-labelledby="summary-title">
+            <div class="section-heading">
+              <div><p class="eyebrow">AI-generated</p><h3 id="summary-title">Incident summary</h3></div>
+              <span id="confidence-badge" class="badge"></span>
+            </div>
+            <div id="summary-content"></div>
+          </section>
+
+          <section aria-labelledby="details-title">
+            <div class="section-heading"><div><p class="eyebrow">Structured report</p><h3 id="details-title">Description & supporting details</h3></div></div>
+            <div id="detail-grid" class="detail-grid"></div>
           </section>
 
           <section aria-labelledby="transcript-title">
             <div class="section-heading">
-              <div><p class="eyebrow">Finalized evidence</p><h3 id="transcript-title">Transcript</h3></div>
+              <div><p class="eyebrow">Finalized evidence</p><h3 id="transcript-title">Full transcript</h3></div>
               <span id="turn-count" class="muted"></span>
             </div>
             <div id="transcript" class="transcript"></div>

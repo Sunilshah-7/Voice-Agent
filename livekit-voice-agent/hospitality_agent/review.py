@@ -33,6 +33,12 @@ class ReviewStore:
             plan = artifact["interview_plan"]
             context = artifact.get("respondent_context", {})
             synthesis = artifact.get("synthesis", {"status": "not_run"})
+            incident = artifact.get("incident") or {}
+            incident_record = incident.get("record") or artifact.get("incident_record") or {}
+            urgency = (incident_record.get("urgency") or {}).get("classification")
+            caller = incident_record.get("caller") or {}
+            location = incident_record.get("location") or {}
+            summary = incident_record.get("summary") or {}
             sessions.append(
                 {
                     "artifact_id": path.name,
@@ -46,6 +52,17 @@ class ReviewStore:
                     "plan": plan,
                     "respondent_context": context,
                     "synthesis_status": synthesis.get("status", "not_run"),
+                    "incident_id": incident.get("id") or session.get("incident_id"),
+                    "incident_type": incident_record.get("incident_type"),
+                    "urgency": urgency or (artifact.get("safety") or {}).get("urgency"),
+                    "submission_time": session.get("artifact_created_at"),
+                    "human_review_required": bool(
+                        (artifact.get("safety") or {}).get("human_review_required")
+                    ),
+                    "location": location.get("value"),
+                    "summary": summary.get("value"),
+                    "caller_name": (caller.get("name") or {}).get("value"),
+                    "caller_contact": (caller.get("contact") or {}).get("value"),
                 }
             )
         sessions.sort(

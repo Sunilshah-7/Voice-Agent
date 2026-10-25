@@ -13,6 +13,7 @@ from .models import (
     InterviewPhase,
     InterviewPlan,
     ObjectiveStatus,
+    UrgencyClassification,
 )
 
 
@@ -29,11 +30,26 @@ _CORRECTION_PATTERNS = (
     re.compile(r"\b(?:actually|correction|to clarify)\b", re.IGNORECASE),
     re.compile(r"\bthat's\s+not\s+(?:right|correct|what i meant)\b", re.IGNORECASE),
 )
-_SENSITIVE_PATTERNS = (
-    re.compile(r"\b(?:sexual\s+harassment|harassed|discrimination|discriminated)\b", re.IGNORECASE),
-    re.compile(r"\b(?:assault|violence|threatened|immediate danger)\b", re.IGNORECASE),
-    re.compile(r"\b(?:i|we)\s+(?:feel|are)\s+unsafe\b", re.IGNORECASE),
-    re.compile(r"\b(?:medical emergency|suicide|self[- ]harm)\b", re.IGNORECASE),
+_URGENT_PATTERNS = (
+    re.compile(
+        r"\b(?:injur(?:y|ies|ed)|seriously hurt|bleeding|unconscious|not breathing|"
+        r"medical emergency)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:assault|violence|violent|attack(?:ed|ing)?|fight(?:ing)?|shooting|stabbing)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:threat(?:en|ened|ening)?|weapon|gun|knife|bomb)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:there(?:'s| is)\s+(?:a\s+)?fire|on fire|smoke|flames|explosion)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:immediate danger|danger right now|help me now|trapped)\b", re.IGNORECASE),
+    re.compile(r"\b(?:suicide|suicidal|self[- ]harm)\b", re.IGNORECASE),
 )
 
 
@@ -52,6 +68,12 @@ class InterviewState:
     respondent_turns: int = 0
     corrections: int = 0
     sensitive_disclosure: bool = False
+    urgency: UrgencyClassification = UrgencyClassification.ROUTINE
+    urgency_rationale: str = "No potential emergency has been identified."
+    human_review_required: bool = False
+    escalation_status: str | None = None
+    escalation_source_turn_id: str | None = None
+    escalation_elapsed_seconds: float | None = None
     main_finding: str | None = None
     asked_objective_id: str | None = None
     coverage: dict[str, ObjectiveStatus] = field(init=False)
@@ -103,7 +125,27 @@ class InterviewState:
             self.started_at = self.clock()
             self.phase = InterviewPhase.INTERVIEWING
 
+    def replace_plan(self, plan: InterviewPlan) -> None:
+        """Switch intake objectives while preserving the active call's timing and budgets."""
+        if self.phase in {
+            InterviewPhase.CONFIRMATION,
+            InterviewPhase.CLOSING,
+            InterviewPhase.COMPLETED,
+        }:
+            raise ValueError("Cannot change the intake category while closing the call")
+        self.plan = plan
+        self.coverage = {
+            objective.id: ObjectiveStatus.NOT_STARTED for objective in plan.objectives
+        }
+        self.evidence_notes = {objective.id: [] for objective in plan.objectives}
+        self.asked_objective_id = None
+
     def mark_question_asked(self, objective_id: str) -> None:
+        if self.human_review_required or self.phase in {
+            InterviewPhase.CLOSING,
+            InterviewPhase.COMPLETED,
+        }:
+            raise ValueError("Routine questioning is blocked after urgent escalation")
         self.plan.objective(objective_id)
         if self.coverage[objective_id] not in {
             ObjectiveStatus.NOT_STARTED,
@@ -112,23 +154,31 @@ class InterviewState:
             raise ValueError(f"Objective is already resolved: {objective_id}")
         self.asked_objective_id = objective_id
 
-    def observe_respondent_turn(self, text: str) -> TurnDecision:
+    def observe_respondent_turn(
+        self,
+        text: str,
+        *,
+        source_turn_id: str | None = None,
+    ) -> TurnDecision:
         """Apply deterministic safety and budget transitions before the LLM responds."""
         self.start_interview()
         self.respondent_turns += 1
         normalized = " ".join(text.split())
 
-        if self._matches(_SENSITIVE_PATTERNS, normalized):
+        if self._matches(_URGENT_PATTERNS, normalized):
             self.sensitive_disclosure = True
-            self.phase = InterviewPhase.CLOSING
-            self.completion_reason = CompletionReason.SENSITIVE_DISCLOSURE
+            self.update_urgency(
+                UrgencyClassification.URGENT,
+                "The caller described a potential emergency requiring immediate human review.",
+                source_turn_id=source_turn_id,
+            )
             return TurnDecision(
-                kind="sensitive_disclosure",
+                kind="urgent_escalation",
                 instruction=(
-                    "Acknowledge the concern neutrally. Do not investigate, ask for names, "
-                    "or promise an outcome. Say that urgent danger should go to local emergency "
-                    "services and other concerns should go to the organization's configured "
-                    "human reporting channel. Then end the interview."
+                    "Stop routine intake immediately. Say the call has been flagged Urgent — "
+                    "Human Review Required and a simulated operator escalation has started. "
+                    "Clearly direct immediate danger to 911 or the local emergency number. "
+                    "Do not ask another routine question or imply that help was dispatched."
                 ),
             )
 
@@ -184,6 +234,40 @@ class InterviewState:
             instruction="Continue with one useful probe or the most useful uncovered objective.",
         )
 
+    def update_urgency(
+        self,
+        classification: UrgencyClassification,
+        rationale: str,
+        *,
+        source_turn_id: str | None = None,
+    ) -> bool:
+        """Raise urgency and create an idempotent simulated escalation when required."""
+        cleaned = " ".join(rationale.split())
+        if not cleaned:
+            raise ValueError("Urgency rationale cannot be empty")
+        rank = {
+            UrgencyClassification.ROUTINE: 0,
+            UrgencyClassification.PRIORITY: 1,
+            UrgencyClassification.URGENT: 2,
+            UrgencyClassification.EMERGENCY: 3,
+        }
+        if rank[classification] < rank[self.urgency]:
+            return False
+        self.urgency = classification
+        self.urgency_rationale = cleaned
+        if classification in {
+            UrgencyClassification.URGENT,
+            UrgencyClassification.EMERGENCY,
+        }:
+            self.human_review_required = True
+            if self.escalation_status is None:
+                self.escalation_status = "simulated_operator_notified"
+                self.escalation_source_turn_id = source_turn_id
+                self.escalation_elapsed_seconds = self.elapsed_seconds
+            self.phase = InterviewPhase.CLOSING
+            self.completion_reason = CompletionReason.URGENT_ESCALATION
+        return True
+
     def record_evidence(
         self,
         objective_id: str,
@@ -192,6 +276,8 @@ class InterviewState:
         sufficient: bool,
         source_turn_id: str | None = None,
     ) -> EvidenceNote:
+        if self.human_review_required:
+            raise ValueError("Routine evidence capture is blocked after urgent escalation")
         self.plan.objective(objective_id)
         cleaned = " ".join(summary.split())
         if not cleaned:
@@ -258,7 +344,10 @@ class InterviewState:
             f"phase={self.phase.value}; respondent_turns={self.respondent_turns}/"
             f"{self.plan.max_respondent_turns}; coverage=[{coverage}]; "
             f"current_objective={self.current_objective_id or 'none'}; "
-            f"asked_objective={self.asked_objective_id or 'none'}"
+            f"asked_objective={self.asked_objective_id or 'none'}; "
+            f"urgency={self.urgency.value}; "
+            f"human_review_required={str(self.human_review_required).lower()}; "
+            f"escalation_status={self.escalation_status or 'none'}"
         )
 
     @staticmethod

@@ -8,7 +8,7 @@ from pathlib import Path
 from livekit.agents import llm
 
 from hospitality_agent.models import CompletionReason, InterviewPhase, RespondentContext
-from hospitality_agent.plans import POST_SHIFT_GUEST_EXPERIENCE
+from hospitality_agent.plans import GENERAL_INQUIRY
 from hospitality_agent.state import InterviewState
 from hospitality_agent.transcript import (
     ARTIFACT_SCHEMA_VERSION,
@@ -32,8 +32,8 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.recorder = TranscriptRecorder(
-            plan=POST_SHIFT_GUEST_EXPERIENCE,
-            session_id="hotel-room/session 42",
+            plan=GENERAL_INQUIRY,
+            session_id="intake-room/session 42",
             output_dir=self.temp_dir.name,
             respondent_context=RespondentContext(
                 property_id="property-12",
@@ -63,7 +63,7 @@ class TranscriptRecorderTests(unittest.TestCase):
         message = self.message(
             message_id="provider-user-1",
             role="user",
-            text="Guests   waited\n at check-in.",
+            text="A vehicle   blocked\n the driveway.",
         )
 
         first = self.recorder.record_chat_message(message)
@@ -74,7 +74,7 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.assertEqual(len(self.recorder.turns), 1)
         self.assertEqual(first.id, "turn-0001")
         self.assertEqual(first.role, "respondent")
-        self.assertEqual(first.text, "Guests waited at check-in.")
+        self.assertEqual(first.text, "A vehicle blocked the driveway.")
 
     def test_ignores_non_conversation_roles_and_empty_messages(self) -> None:
         system_message = self.message(
@@ -93,7 +93,7 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.assertEqual(self.recorder.turns, [])
 
     def test_completed_artifact_contains_plan_transcript_coverage_and_allowed_metadata(self) -> None:
-        state = InterviewState(POST_SHIFT_GUEST_EXPERIENCE, clock=self.clock)
+        state = InterviewState(GENERAL_INQUIRY, clock=self.clock)
         self.recorder.record_chat_message(
             self.message(message_id="assistant-1", role="assistant", text="What happened?")
         )
@@ -101,13 +101,13 @@ class TranscriptRecorderTests(unittest.TestCase):
             self.message(
                 message_id="provider-user-1",
                 role="user",
-                text="Guests waited at check-in.",
+                text="A vehicle blocked the driveway.",
             )
         )
         assert respondent_turn is not None
         state.record_evidence(
-            "primary_event",
-            "Guests waited for rooms.",
+            "request_type",
+            "The caller reported a parking complaint.",
             sufficient=True,
             source_turn_id=respondent_turn.id,
         )
@@ -122,7 +122,26 @@ class TranscriptRecorderTests(unittest.TestCase):
             usage={"llm_prompt_tokens": 42},
             synthesis={
                 "status": "completed",
-                "result": {"confidence": "medium"},
+                "result": {
+                    "schema_version": "1.0",
+                    "incident_type": "general_inquiry",
+                    "subcategory": "other",
+                    "caller": {"name": None, "contact": None},
+                    "description": {
+                        "value": "A vehicle blocked the driveway.",
+                        "evidence_turn_ids": [respondent_turn.id],
+                    },
+                    "urgency": {
+                        "classification": "routine",
+                        "rationale": "No urgent condition was reported.",
+                        "evidence_turn_ids": [respondent_turn.id],
+                    },
+                    "summary": {
+                        "value": "Caller reported a blocked driveway.",
+                        "evidence_turn_ids": [respondent_turn.id],
+                    },
+                    "confidence": "medium",
+                },
             },
         )
         artifact = json.loads(path.read_text(encoding="utf-8"))
@@ -141,11 +160,41 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.assertEqual(artifact["usage"]["llm_prompt_tokens"], 42)
         self.assertEqual(artifact["synthesis"]["status"], "completed")
         self.assertEqual(artifact["synthesis"]["result"]["confidence"], "medium")
+        self.assertEqual(artifact["incident_record"]["subcategory"], "other")
+        self.assertEqual(artifact["transcript"][1]["created_at"], 1_700_000_000.0)
+        self.assertEqual(artifact["safety"]["urgency"], "routine")
+        self.assertFalse(artifact["safety"]["human_review_required"])
         serialized = path.read_text(encoding="utf-8")
         self.assertNotIn("provider-user-1", serialized)
 
+    def test_urgent_escalation_is_saved_with_transcript_and_review_flag(self) -> None:
+        state = InterviewState(GENERAL_INQUIRY, clock=self.clock)
+        turn = self.recorder.record_chat_message(
+            self.message(
+                message_id="provider-user-urgent",
+                role="user",
+                text="There is a fire and someone may be trapped.",
+            )
+        )
+        assert turn is not None
+
+        state.observe_respondent_turn(turn.text, source_turn_id=turn.id)
+        artifact = self.recorder.build_artifact(state)
+
+        self.assertEqual(artifact["safety"]["urgency"], "urgent")
+        self.assertEqual(
+            artifact["safety"]["review_flag"],
+            "Urgent — Human Review Required",
+        )
+        self.assertEqual(
+            artifact["safety"]["escalation"]["status"],
+            "simulated_operator_notified",
+        )
+        self.assertEqual(artifact["safety"]["escalation"]["source_turn_id"], turn.id)
+        self.assertEqual(artifact["transcript"][0]["text"], turn.text)
+
     def test_disconnect_before_completion_is_saved_as_incomplete(self) -> None:
-        state = InterviewState(POST_SHIFT_GUEST_EXPERIENCE, clock=self.clock)
+        state = InterviewState(GENERAL_INQUIRY, clock=self.clock)
         state.start_interview()
         self.recorder.set_close("participant_disconnected")
 
@@ -172,7 +221,7 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.assertTrue(turn.interrupted)
 
     def test_finalize_is_idempotent(self) -> None:
-        state = InterviewState(POST_SHIFT_GUEST_EXPERIENCE, clock=self.clock)
+        state = InterviewState(GENERAL_INQUIRY, clock=self.clock)
 
         first_path = self.recorder.finalize(state)
         original = first_path.read_text(encoding="utf-8")
@@ -183,7 +232,7 @@ class TranscriptRecorderTests(unittest.TestCase):
         self.assertEqual(first_path.read_text(encoding="utf-8"), original)
 
     def test_filename_cannot_escape_output_directory(self) -> None:
-        path = self.recorder.finalize(InterviewState(POST_SHIFT_GUEST_EXPERIENCE))
+        path = self.recorder.finalize(InterviewState(GENERAL_INQUIRY))
 
         self.assertEqual(path.parent, Path(self.temp_dir.name))
         self.assertNotIn("/", path.name)
@@ -192,12 +241,12 @@ class TranscriptRecorderTests(unittest.TestCase):
         blocking_file = Path(self.temp_dir.name) / "not-a-directory"
         blocking_file.write_text("occupied", encoding="utf-8")
         recorder = TranscriptRecorder(
-            plan=POST_SHIFT_GUEST_EXPERIENCE,
+            plan=GENERAL_INQUIRY,
             output_dir=blocking_file,
         )
 
         with self.assertRaisesRegex(ArtifactWriteError, "Could not write session artifact"):
-            recorder.finalize(InterviewState(POST_SHIFT_GUEST_EXPERIENCE))
+            recorder.finalize(InterviewState(GENERAL_INQUIRY))
 
     def test_respondent_context_rejects_unapproved_identifiers(self) -> None:
         with self.assertRaisesRegex(ValueError, "guest_name, room_number"):

@@ -1,21 +1,20 @@
-"""Evidence-grounded post-interview synthesis and deterministic validation."""
+"""Evidence-grounded incident extraction and deterministic validation."""
 
 from __future__ import annotations
 
 import json
-import re
 from enum import StrEnum
 from typing import Awaitable, Callable, Literal
 
 from livekit.agents import llm
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .models import TranscriptTurn
+from .models import TranscriptTurn, UrgencyClassification
 from .state import InterviewState
 
 
 class SynthesisError(RuntimeError):
-    """Base class for synthesis failures that must not destroy the transcript artifact."""
+    """Base class for extraction failures that must not destroy the transcript artifact."""
 
 
 class SynthesisGenerationError(SynthesisError):
@@ -32,18 +31,18 @@ class Confidence(StrEnum):
     HIGH = "high"
 
 
-class EvidenceBackedStatement(BaseModel):
+class EvidenceBackedValue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str = Field(min_length=1)
+    value: str = Field(min_length=1)
     evidence_turn_ids: list[str] = Field(min_length=1)
 
-    @field_validator("text")
+    @field_validator("value")
     @classmethod
-    def normalize_text(cls, value: str) -> str:
+    def normalize_value(cls, value: str) -> str:
         normalized = " ".join(value.split())
         if not normalized:
-            raise ValueError("statement cannot be blank")
+            raise ValueError("value cannot be blank")
         return normalized
 
     @field_validator("evidence_turn_ids")
@@ -54,36 +53,71 @@ class EvidenceBackedStatement(BaseModel):
         return values
 
 
-class RecommendedAction(EvidenceBackedStatement):
-    scope: Literal["review", "investigate", "pilot"]
-
-
-class RepresentativeQuote(BaseModel):
+class CallerInformation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str = Field(min_length=1)
-    turn_id: str
+    name: EvidenceBackedValue | None = None
+    contact: EvidenceBackedValue | None = None
 
-    @field_validator("text")
+
+class UrgencyAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classification: UrgencyClassification
+    rationale: str = Field(min_length=1)
+    evidence_turn_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("rationale")
     @classmethod
-    def normalize_quote(cls, value: str) -> str:
+    def normalize_rationale(cls, value: str) -> str:
         return " ".join(value.split())
 
+    @field_validator("evidence_turn_ids")
+    @classmethod
+    def unique_evidence_ids(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("evidence turn IDs must be unique")
+        return values
 
-class InterviewSynthesis(BaseModel):
+
+class IncidentRecord(BaseModel):
+    """Versioned structured result produced from one finalized call transcript."""
+
     model_config = ConfigDict(extra="forbid")
 
-    operational_issue: EvidenceBackedStatement
-    guest_impact: EvidenceBackedStatement | None = None
-    root_cause_hypotheses: list[EvidenceBackedStatement] = Field(default_factory=list)
-    reported_frequency: EvidenceBackedStatement | None = None
-    reported_severity: EvidenceBackedStatement | None = None
-    workaround: EvidenceBackedStatement | None = None
-    positive_practice: EvidenceBackedStatement | None = None
-    recommended_action: RecommendedAction | None = None
-    representative_quotes: list[RepresentativeQuote] = Field(default_factory=list)
+    schema_version: Literal["1.0"] = "1.0"
+    incident_type: Literal[
+        "parking_complaint",
+        "lost_pet",
+        "noise_complaint",
+        "general_inquiry",
+    ]
+    subcategory: str = Field(min_length=1)
+    classification_evidence_turn_ids: list[str] = Field(min_length=1)
+    caller: CallerInformation = Field(default_factory=CallerInformation)
+    location: EvidenceBackedValue | None = None
+    description: EvidenceBackedValue
+    occurred_at: EvidenceBackedValue | None = None
+    relevant_details: list[EvidenceBackedValue] = Field(default_factory=list)
+    urgency: UrgencyAssessment
+    summary: EvidenceBackedValue
     confidence: Confidence
     evidence_gaps: list[str] = Field(default_factory=list)
+
+    @field_validator("subcategory")
+    @classmethod
+    def normalize_subcategory(cls, value: str) -> str:
+        normalized = "_".join(value.casefold().split())
+        if not normalized:
+            raise ValueError("subcategory cannot be blank")
+        return normalized
+
+    @field_validator("classification_evidence_turn_ids")
+    @classmethod
+    def unique_classification_ids(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("classification evidence turn IDs must be unique")
+        return values
 
     @field_validator("evidence_gaps")
     @classmethod
@@ -95,18 +129,11 @@ class InterviewSynthesis(BaseModel):
 
 
 TextGenerator = Callable[[str], Awaitable[str]]
-_NUMBER_TOKENS = re.compile(
-    r"\b(?:\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
-    r"eleven|twelve|dozen|hundred|thousand|once|twice)\b",
-    re.IGNORECASE,
-)
 _OVERREACH_PHRASES = (
-    "all properties",
-    "across the company",
-    "company-wide",
-    "organization-wide",
     "this proves",
+    "definitely happened",
     "definitely caused",
+    "everyone knows",
     "always happens",
 )
 
@@ -122,9 +149,10 @@ class LiveKitTextGenerator:
         chat_ctx.add_message(
             role="system",
             content=(
-                "You are a careful hospitality research analyst. Return only valid JSON "
-                "matching the supplied schema. Never invent evidence, quotations, frequency, "
-                "severity, causes, or actions."
+                "You are a careful non-emergency public-safety intake analyst. Return "
+                "only valid JSON matching the supplied schema. Never invent incident "
+                "details, identity, contact information, time, location, urgency facts, "
+                "or quotations."
             ),
         )
         chat_ctx.add_message(role="user", content=prompt)
@@ -135,10 +163,10 @@ class LiveKitTextGenerator:
                     if chunk.delta and chunk.delta.content:
                         chunks.append(chunk.delta.content)
         except Exception as exc:
-            raise SynthesisGenerationError("The synthesis model request failed") from exc
+            raise SynthesisGenerationError("The incident extraction request failed") from exc
         response = "".join(chunks).strip()
         if not response:
-            raise SynthesisGenerationError("The synthesis model returned no content")
+            raise SynthesisGenerationError("The incident extraction model returned no content")
         return response
 
 
@@ -151,7 +179,7 @@ class SynthesisService:
         *,
         turns: list[TranscriptTurn],
         state: InterviewState,
-    ) -> InterviewSynthesis:
+    ) -> IncidentRecord:
         respondent_turns = [
             turn for turn in turns if turn.role == "respondent" and not turn.interrupted
         ]
@@ -162,17 +190,29 @@ class SynthesisService:
         raw_response = await self.generator(prompt)
         try:
             payload = json.loads(_strip_json_fence(raw_response))
-            synthesis = InterviewSynthesis.model_validate(payload)
+            incident = IncidentRecord.model_validate(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             raise SynthesisValidationError(
-                "The synthesis response did not match the required schema"
+                "The incident extraction response did not match the required schema"
             ) from exc
-        validate_synthesis(synthesis, turns=turns)
-        return synthesis
+        if incident.incident_type != state.plan.id:
+            raise SynthesisValidationError(
+                "Extracted incident type does not match the selected intake category"
+            )
+        if state.human_review_required and incident.urgency.classification not in {
+            UrgencyClassification.URGENT,
+            UrgencyClassification.EMERGENCY,
+        }:
+            raise SynthesisValidationError(
+                "Incident urgency cannot downgrade an active human-review escalation"
+            )
+        validate_incident_record(incident, turns=turns)
+        return incident
 
     def build_prompt(self, *, turns: list[TranscriptTurn], state: InterviewState) -> str:
         transcript_lines = [
-            f"{turn.id} | {turn.role} | interrupted={str(turn.interrupted).lower()} | {turn.text}"
+            f"{turn.id} | {turn.created_at:.3f} | {turn.role} | "
+            f"interrupted={str(turn.interrupted).lower()} | {turn.text}"
             for turn in turns
         ]
         evidence_lines: list[str] = []
@@ -182,25 +222,36 @@ class SynthesisService:
                     f"{objective.id} | source={note.source_turn_id or 'none'} | {note.summary}"
                 )
 
-        schema = json.dumps(InterviewSynthesis.model_json_schema(), indent=2)
+        schema = json.dumps(IncidentRecord.model_json_schema(), indent=2)
         return f"""
-Create an evidence-grounded synthesis of this single hospitality interview.
+Create one evidence-grounded incident record from this non-emergency call.
+
+Selected incident type: {state.plan.id}
+Runtime urgency: {state.urgency.value}
+Human review required: {str(state.human_review_required).lower()}
 
 Rules:
-- Treat this as one respondent's perspective, never as a property-wide trend.
+- incident_type must exactly match the selected incident type above.
+- Use a concise snake_case subcategory supported by the caller's words.
+- Caller name and contact are optional. Include them only when the caller voluntarily
+  provided them; preserve the value exactly and never infer missing identity information.
+- Preserve locations and occurrence dates or times as caller-reported text. Do not treat a
+  transcript capture timestamp as the incident occurrence time.
+- The transcript timestamps are Unix timestamps for when each finalized turn was captured.
 - Cite only finalized, non-interrupted respondent turn IDs.
-- A representative quote must be an exact substring of its cited respondent turn.
-- Put possible causes only in root_cause_hypotheses; do not present them as proven.
-- Preserve frequency and severity exactly as reported. Do not add numbers.
-- Recommended actions must be scoped as review, investigate, or pilot.
-- Omit optional fields when the transcript does not support them.
-- Describe missing evidence explicitly.
-- Do not repeat names, room numbers, contact details, or other identifiers in the synthesis.
+- relevant_details should contain useful observable facts not already represented elsewhere.
+- Classify urgency as routine, priority, urgent, or emergency. The rationale must distinguish
+  caller-reported facts from model judgment. Emergency classification does not imply that
+  help was dispatched.
+- Never downgrade an urgent runtime escalation in the incident record.
+- The summary must be concise, factual, suitable for human review, and evidence-linked.
+- Do not make legal conclusions or present an allegation as independently verified.
+- State missing required information in evidence_gaps rather than inventing it.
 
-FINALIZED TRANSCRIPT
+TIMESTAMPED FINALIZED TRANSCRIPT
 {chr(10).join(transcript_lines)}
 
-ACTIVE INTERVIEW EVIDENCE
+ACTIVE INTAKE EVIDENCE
 {chr(10).join(evidence_lines) or 'No active structured evidence was recorded.'}
 
 REQUIRED JSON SCHEMA
@@ -208,8 +259,8 @@ REQUIRED JSON SCHEMA
 """.strip()
 
 
-def validate_synthesis(
-    synthesis: InterviewSynthesis,
+def validate_incident_record(
+    incident: IncidentRecord,
     *,
     turns: list[TranscriptTurn],
 ) -> None:
@@ -218,47 +269,42 @@ def validate_synthesis(
         for turn in turns
         if turn.role == "respondent" and not turn.interrupted
     }
+    _validate_evidence_ids(incident.classification_evidence_turn_ids, respondent_turns)
 
-    statements: list[EvidenceBackedStatement] = [synthesis.operational_issue]
-    for optional_statement in (
-        synthesis.guest_impact,
-        synthesis.reported_frequency,
-        synthesis.reported_severity,
-        synthesis.workaround,
-        synthesis.positive_practice,
-        synthesis.recommended_action,
-    ):
-        if optional_statement is not None:
-            statements.append(optional_statement)
-    statements.extend(synthesis.root_cause_hypotheses)
+    values: list[EvidenceBackedValue] = [incident.description, incident.summary]
+    values.extend(incident.relevant_details)
+    if incident.location is not None:
+        values.append(incident.location)
+    if incident.occurred_at is not None:
+        values.append(incident.occurred_at)
+    if incident.caller.name is not None:
+        values.append(incident.caller.name)
+        _validate_verbatim_value(incident.caller.name, respondent_turns)
+    if incident.caller.contact is not None:
+        values.append(incident.caller.contact)
+        _validate_verbatim_value(incident.caller.contact, respondent_turns)
 
-    for statement in statements:
-        _validate_evidence_ids(statement.evidence_turn_ids, respondent_turns)
-        lowered = statement.text.casefold()
+    for value in values:
+        _validate_evidence_ids(value.evidence_turn_ids, respondent_turns)
+        lowered = value.value.casefold()
         if any(phrase in lowered for phrase in _OVERREACH_PHRASES):
-            raise SynthesisValidationError(
-                f"Unsupported organization-wide claim: {statement.text}"
-            )
+            raise SynthesisValidationError(f"Unsupported overclaim: {value.value}")
 
-    if synthesis.reported_frequency is not None:
-        source_text = " ".join(
-            respondent_turns[turn_id].text
-            for turn_id in synthesis.reported_frequency.evidence_turn_ids
+    _validate_evidence_ids(incident.urgency.evidence_turn_ids, respondent_turns)
+
+
+def _validate_verbatim_value(
+    field: EvidenceBackedValue,
+    respondent_turns: dict[str, TranscriptTurn],
+) -> None:
+    _validate_evidence_ids(field.evidence_turn_ids, respondent_turns)
+    if not any(
+        field.value.casefold() in respondent_turns[turn_id].text.casefold()
+        for turn_id in field.evidence_turn_ids
+    ):
+        raise SynthesisValidationError(
+            "Caller identity and contact values must appear verbatim in cited evidence"
         )
-        claim_numbers = {
-            token.casefold()
-            for token in _NUMBER_TOKENS.findall(synthesis.reported_frequency.text)
-        }
-        source_numbers = {token.casefold() for token in _NUMBER_TOKENS.findall(source_text)}
-        if not claim_numbers.issubset(source_numbers):
-            raise SynthesisValidationError("Reported frequency contains an unsupported number")
-
-    for quote in synthesis.representative_quotes:
-        _validate_evidence_ids([quote.turn_id], respondent_turns)
-        if quote.text not in respondent_turns[quote.turn_id].text:
-            raise SynthesisValidationError(
-                f"Representative quote is not verbatim in {quote.turn_id}"
-            )
 
 
 def _validate_evidence_ids(

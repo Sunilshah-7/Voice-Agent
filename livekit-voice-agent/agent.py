@@ -22,8 +22,9 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from hospitality_agent import (
     ArtifactWriteError,
+    CompletionCoordinator,
     DEFAULT_INTERVIEW_PLAN,
-    HospitalityInterviewer,
+    NonEmergencyIntakeAgent,
     IntelligenceStore,
     IntelligenceStoreError,
     LiveKitTextGenerator,
@@ -59,10 +60,7 @@ async def entrypoint(ctx: JobContext) -> None:
         session_id=ctx.job.id or None,
         respondent_context=respondent_context,
     )
-    interviewer = HospitalityInterviewer(
-        plan=interview_plan,
-        recorder=recorder,
-    )
+    usage_collector = metrics.UsageCollector()
     synthesis_model = llm.FallbackAdapter(
         [
             inference.LLM(model="openai/gpt-4.1-mini"),
@@ -70,6 +68,21 @@ async def entrypoint(ctx: JobContext) -> None:
         ]
     )
     synthesis_service = SynthesisService(LiveKitTextGenerator(synthesis_model))
+    database_path = os.getenv(
+        "SHIFT_SIGNAL_DB_PATH",
+        str(recorder.output_dir / "shiftsignal.db"),
+    )
+    completion = CompletionCoordinator(
+        recorder=recorder,
+        synthesis_service=synthesis_service,
+        database_path=database_path,
+        usage_provider=lambda: vars(usage_collector.get_summary()),
+    )
+    interviewer = NonEmergencyIntakeAgent(
+        plan=interview_plan,
+        recorder=recorder,
+        completion_handler=completion.submit,
+    )
     # Configure the voice pipeline with STT, LLM, TTS, and VAD providers
     session = AgentSession(
         # LLM with fallback: OpenAI primary, Gemini backup
@@ -100,9 +113,6 @@ async def entrypoint(ctx: JobContext) -> None:
         turn_detection=MultilingualModel(),
         preemptive_generation=True,
     )
-    # Aggregate data across all conversation turns
-    usage_collector = metrics.UsageCollector()
-
     # Track End of Utterance timing (when turn detector decides user finished speaking)
     last_eou_metrics: metrics.EOUMetrics | None = None
 
@@ -120,8 +130,20 @@ async def entrypoint(ctx: JobContext) -> None:
     async def persist_session() -> None:
         summary = usage_collector.get_summary()
         logger.info("Usage summary: %s", summary)
-        if recorder.latest_respondent_turn_id is None:
-            synthesis: dict[str, object] = {
+        if completion.result is not None and completion.result.success:
+            logger.info(
+                "Incident submission already completed: %s",
+                completion.result.incident_id,
+            )
+            return
+        synthesis: dict[str, object]
+        if completion.result is not None:
+            synthesis = {
+                "status": "failed",
+                "error_code": completion.result.error_code or "submission_failed",
+            }
+        elif recorder.latest_respondent_turn_id is None:
+            synthesis = {
                 "status": "skipped",
                 "reason": "no_finalized_respondent_turns",
             }
@@ -158,10 +180,6 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("Session ended but its artifact could not be written")
             return
         logger.info("Session artifact written: %s", path)
-        database_path = os.getenv(
-            "SHIFT_SIGNAL_DB_PATH",
-            str(recorder.output_dir / "shiftsignal.db"),
-        )
         try:
             intelligence = IntelligenceStore(database_path)
             try:

@@ -89,3 +89,250 @@ function renderSessionList() {
     list.append(button);
   });
 }
+
+async function selectSession(artifactId) {
+  state.mode = "session";
+  state.selectedId = artifactId;
+  $("signals-button").classList.remove("active");
+  renderSessionList();
+  $("empty-state").hidden = true;
+  $("intelligence-content").hidden = true;
+  $("review-content").hidden = true;
+  try {
+    const response = await fetch(`/api/sessions/${encodeURIComponent(artifactId)}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not load interview");
+    renderArtifact(payload);
+    $("review-content").hidden = false;
+  } catch (error) {
+    $("empty-state").hidden = false;
+    $("empty-state").querySelector("h2").textContent = "Interview could not be loaded";
+    $("empty-state").querySelector("p:last-child").textContent = error.message;
+  }
+}
+
+async function loadIntelligence() {
+  state.mode = "intelligence";
+  state.selectedId = null;
+  $("signals-button").classList.add("active");
+  renderSessionList();
+  $("empty-state").hidden = true;
+  $("intelligence-content").hidden = true;
+  $("review-content").hidden = true;
+  $("intelligence-content").hidden = false;
+  const groupBy = $("dimension-select").value;
+  ["trend-signals", "issue-signals", "practice-signals"].forEach((id) => {
+    $(id).replaceChildren(create("div", "empty-panel", "Loading signals…"));
+  });
+  try {
+    const response = await fetch(
+      `/api/intelligence?group_by=${encodeURIComponent(groupBy)}`,
+      { cache: "no-store" },
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not load intelligence");
+    renderIntelligence(payload);
+  } catch (error) {
+    $("trend-signals").replaceChildren(create("div", "empty-panel", error.message));
+    $("issue-signals").replaceChildren();
+    $("practice-signals").replaceChildren();
+  }
+}
+
+function renderIntelligence(snapshot) {
+  const facts = [
+    ["Indexed interviews", snapshot.indexed_sessions],
+    ["Minimum sample", snapshot.minimum_sample_size],
+    ["Qualified issues", snapshot.recurring_issues.length],
+    ["Recent signals", snapshot.trends.length],
+  ];
+  $("intelligence-facts").replaceChildren(...facts.map(([name, value]) => {
+    const card = create("div", "fact");
+    card.append(create("small", "", name), create("strong", "", value));
+    return card;
+  }));
+  renderSignalList("trend-signals", snapshot.trends, true);
+  renderSignalList("issue-signals", snapshot.recurring_issues);
+  renderSignalList("practice-signals", snapshot.positive_practices);
+  $("intelligence-limitations").replaceChildren(
+    ...snapshot.limitations.map((limitation) => create("li", "", limitation)),
+  );
+}
+
+function renderSignalList(containerId, signals, isTrend = false) {
+  const container = $(containerId);
+  container.replaceChildren();
+  if (!signals.length) {
+    container.append(
+      create(
+        "div",
+        "empty-panel",
+        "No signal meets the minimum evidence threshold for this grouping.",
+      ),
+    );
+    return;
+  }
+  signals.forEach((signal) => {
+    const card = create("article", "signal-card");
+    const count = isTrend ? signal.recent_count : signal.sample_size;
+    const status = isTrend ? signal.classification : `${count} interviews`;
+    card.append(badge(status, isTrend ? "partial" : "completed"));
+    card.append(create("h4", "", signal.text));
+    const comparison = isTrend
+      ? `${label(signal.dimension_value)} · ${signal.baseline_count} prior → ${signal.recent_count} recent`
+      : `${label(signal.dimension_value)} · ${count} supporting interviews`;
+    card.append(create("p", "", comparison));
+    const sources = create("div", "source-links");
+    signal.supporting_artifact_ids.forEach((artifactId, index) => {
+      const sessionId = signal.supporting_session_ids[index] || artifactId;
+      const button = create("button", "source-link", sessionId);
+      button.type = "button";
+      button.addEventListener("click", () => selectSession(artifactId));
+      sources.append(button);
+    });
+    card.append(sources);
+    container.append(card);
+  });
+}
+
+function renderArtifact(artifact) {
+  const session = artifact.session;
+  const synthesis = artifact.synthesis || { status: "not_run" };
+  const result = synthesis.result || {};
+  $("plan-title").textContent = artifact.interview_plan.title;
+  $("session-subtitle").textContent = `Session ${session.id} · schema ${artifact.schema_version}`;
+  $("header-badges").replaceChildren(
+    badge(session.status, session.status),
+    badge(label(artifact.interview_plan.id)),
+  );
+  const confidence = $("confidence-card");
+  confidence.replaceChildren(create("small", "", "Confidence"), create("strong", "", label(result.confidence)));
+  renderFacts(session, artifact.respondent_context || {});
+  renderSynthesis(synthesis);
+  renderCoverage(artifact.objective_coverage || []);
+  renderTranscript(artifact.transcript || []);
+}
+
+function renderFacts(session, context) {
+  const facts = [
+    ["Started", dateTime(session.started_at)],
+    ["Completion", label(session.completion_reason)],
+    ["Close reason", label(session.close_reason)],
+    ["Final turns", session.transcript_turns ?? 0],
+  ];
+  $("session-facts").replaceChildren(...facts.map(([name, value]) => {
+    const card = create("div", "fact");
+    card.append(create("small", "", name), create("strong", "", value));
+    return card;
+  }));
+  const chips = Object.entries(context).map(([name, value]) =>
+    create("span", "context-chip", `${label(name)}: ${label(value)}`),
+  );
+  $("context-chips").replaceChildren(...chips);
+  if (!chips.length) $("context-chips").append(create("span", "muted", "No optional respondent context recorded."));
+}
+
+function statementCard(title, statement, extraClass = "") {
+  const card = create("article", `detail-card ${extraClass}`.trim());
+  card.append(create("h4", "", title));
+  if (!statement) {
+    card.append(create("p", "muted", "Not supported by this interview."));
+    return card;
+  }
+  card.append(create("p", "", statement.text));
+  card.append(evidenceLinks(statement.evidence_turn_ids));
+  return card;
+}
+
+function renderSynthesis(synthesis) {
+  $("synthesis-status").className = `badge ${synthesis.status}`;
+  $("synthesis-status").textContent = label(synthesis.status);
+  const container = $("synthesis-content");
+  container.replaceChildren();
+  if (synthesis.status !== "completed" || !synthesis.result) {
+    const message = synthesis.status === "failed"
+      ? `Synthesis failed (${label(synthesis.error_code)}). The transcript remains available for review.`
+      : "No completed synthesis is available for this session.";
+    container.append(create("div", "empty-panel", message));
+    return;
+  }
+  const result = synthesis.result;
+  const primary = create("article", "finding-card");
+  primary.append(create("h4", "", "Operational issue"));
+  primary.append(create("p", "", result.operational_issue.text));
+  primary.append(evidenceLinks(result.operational_issue.evidence_turn_ids));
+  container.append(primary);
+
+  const grid = create("div", "detail-grid");
+  grid.append(
+    statementCard("Guest or team impact", result.guest_impact),
+    statementCard("Reported frequency", result.reported_frequency),
+    statementCard("Reported severity", result.reported_severity),
+    statementCard("Workaround", result.workaround),
+    statementCard("Positive practice", result.positive_practice),
+    statementCard(
+      result.recommended_action ? `Recommended action · ${label(result.recommended_action.scope)}` : "Recommended action",
+      result.recommended_action,
+    ),
+  );
+  (result.root_cause_hypotheses || []).forEach((hypothesis, index) => {
+    grid.append(statementCard(`Root-cause hypothesis ${index + 1}`, hypothesis));
+  });
+  (result.representative_quotes || []).forEach((quote) => {
+    const card = create("article", "detail-card");
+    card.append(create("h4", "", "Representative quote"));
+    card.append(create("blockquote", "", `“${quote.text}”`));
+    card.append(evidenceLinks([quote.turn_id]));
+    grid.append(card);
+  });
+  const gaps = create("article", "detail-card full");
+  gaps.append(create("h4", "", "Evidence gaps"));
+  gaps.append(create("p", "", (result.evidence_gaps || []).join(" · ") || "No gaps recorded by synthesis."));
+  grid.append(gaps);
+  container.append(grid);
+}
+
+function renderCoverage(coverage) {
+  const grid = $("coverage-grid");
+  grid.replaceChildren();
+  coverage.forEach((objective) => {
+    const card = create("article", "coverage-card");
+    const top = create("div", "coverage-top");
+    top.append(create("h4", "", label(objective.objective_id)), badge(objective.status, objective.status));
+    card.append(top);
+    const evidence = objective.evidence || [];
+    if (!evidence.length) card.append(create("p", "muted", "No structured evidence recorded."));
+    evidence.forEach((note) => {
+      const row = create("div", `evidence-note ${note.active ? "" : "superseded"}`.trim());
+      row.append(document.createTextNode(note.summary));
+      if (note.source_turn_id) row.append(evidenceLinks([note.source_turn_id]));
+      card.append(row);
+    });
+    grid.append(card);
+  });
+}
+
+function renderTranscript(turns) {
+  $("turn-count").textContent = `${turns.length} finalized turns`;
+  const transcript = $("transcript");
+  transcript.replaceChildren();
+  if (!turns.length) {
+    transcript.append(create("div", "empty-panel", "No finalized transcript turns were captured."));
+    return;
+  }
+  turns.forEach((turn) => {
+    const article = create("article", "turn");
+    article.id = `transcript-${turn.id}`;
+    const meta = create("div", "turn-meta");
+    meta.append(create("strong", "", turn.role), create("span", "", turn.id));
+    if (turn.interrupted) meta.append(badge("interrupted", "failed"));
+    article.append(meta, create("p", "", turn.text));
+    transcript.append(article);
+  });
+}
+
+$("refresh-button").addEventListener("click", loadSessions);
+$("session-search").addEventListener("input", renderSessionList);
+$("signals-button").addEventListener("click", loadIntelligence);
+$("dimension-select").addEventListener("change", loadIntelligence);
+loadSessions();

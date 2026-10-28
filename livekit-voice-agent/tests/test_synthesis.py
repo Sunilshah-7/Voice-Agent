@@ -118,3 +118,89 @@ class SynthesisServiceTests(unittest.IsolatedAsyncioTestCase):
         result = await service.synthesize(turns=self.turns, state=self.state)
 
         self.assertEqual(result.operational_issue.evidence_turn_ids, ["turn-0001"])
+
+    async def test_unknown_evidence_turn_is_rejected(self) -> None:
+        payload = valid_payload()
+        payload["operational_issue"]["evidence_turn_ids"] = ["turn-9999"]
+
+        with self.assertRaisesRegex(SynthesisValidationError, "Unsupported evidence"):
+            await self.synthesize(payload)
+
+    async def test_interrupted_respondent_turn_cannot_support_a_finding(self) -> None:
+        self.turns[0] = respondent_turn(
+            "turn-0001",
+            self.turns[0].text,
+            interrupted=True,
+        )
+
+        with self.assertRaisesRegex(SynthesisValidationError, "Unsupported evidence"):
+            await self.synthesize(valid_payload())
+
+    async def test_invented_quote_is_rejected(self) -> None:
+        payload = valid_payload()
+        payload["representative_quotes"][0]["text"] = "A quote nobody said."
+
+        with self.assertRaisesRegex(SynthesisValidationError, "not verbatim"):
+            await self.synthesize(payload)
+
+    async def test_invented_frequency_number_is_rejected(self) -> None:
+        payload = valid_payload()
+        payload["reported_frequency"]["text"] = "It happened twelve times this week."
+
+        with self.assertRaisesRegex(SynthesisValidationError, "unsupported number"):
+            await self.synthesize(payload)
+
+    async def test_organization_wide_overclaim_is_rejected(self) -> None:
+        payload = valid_payload()
+        payload["operational_issue"]["text"] = (
+            "This proves the issue happens across the company."
+        )
+
+        with self.assertRaisesRegex(SynthesisValidationError, "organization-wide claim"):
+            await self.synthesize(payload)
+
+    async def test_malformed_response_is_rejected(self) -> None:
+        service = SynthesisService(FakeGenerator("not json"))
+
+        with self.assertRaisesRegex(SynthesisValidationError, "required schema"):
+            await service.synthesize(turns=self.turns, state=self.state)
+
+    async def test_generation_failure_is_preserved(self) -> None:
+        service = SynthesisService(
+            FakeGenerator(error=SynthesisGenerationError("provider unavailable"))
+        )
+
+        with self.assertRaisesRegex(SynthesisGenerationError, "provider unavailable"):
+            await service.synthesize(turns=self.turns, state=self.state)
+
+    async def test_no_finalized_respondent_turns_is_rejected_before_generation(self) -> None:
+        generator = FakeGenerator(json.dumps(valid_payload()))
+        service = SynthesisService(generator)
+
+        with self.assertRaisesRegex(SynthesisValidationError, "No finalized respondent"):
+            await service.synthesize(turns=[], state=self.state)
+        self.assertEqual(generator.prompts, [])
+
+    def test_prompt_excludes_superseded_evidence(self) -> None:
+        self.state.record_evidence(
+            "operational_context",
+            "Housekeeping failed to update the room.",
+            sufficient=True,
+            source_turn_id="turn-0002",
+        )
+        self.state.correct_evidence(
+            "operational_context",
+            "The front-desk system was delayed.",
+            sufficient=True,
+            source_turn_id="turn-0002",
+        )
+        service = SynthesisService(FakeGenerator(json.dumps(valid_payload())))
+
+        prompt = service.build_prompt(turns=self.turns, state=self.state)
+
+        self.assertNotIn("Housekeeping failed", prompt)
+        self.assertIn("front-desk system was delayed", prompt)
+
+
+if __name__ == "__main__":
+    unittest.main()

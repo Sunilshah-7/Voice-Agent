@@ -356,6 +356,39 @@ class IntelligenceStore:
             })
         return aggregates
 
+    def _supporting_sessions(
+        self,
+        *,
+        signal_type: str,
+        signal_key: str,
+        group_by: str,
+        dimension_value: str,
+        after: float | None = None,
+        through: float | None = None,
+    ) -> list[sqlite3.Row]:
+        conditions = [
+            "g.signal_type = ?",
+            "g.signal_key = ?",
+            f"COALESCE(s.{group_by}, 'not_recorded') = ?",
+        ]
+        parameters: list[object] = [signal_type, signal_key, dimension_value]
+        if after is not None:
+            conditions.append("s.artifact_created_at > ?")
+            parameters.append(after)
+        if through is not None:
+            conditions.append("s.artifact_created_at <= ?")
+            parameters.append(through)
+        return self.connection.execute(
+            f"""
+            SELECT s.session_id, s.artifact_id
+            FROM signals AS g
+            JOIN sessions AS s ON s.session_id = g.session_id
+            WHERE {" AND ".join(conditions)}
+            ORDER BY s.session_id
+            """,
+            parameters,
+        ).fetchall()
+
     def _trends(
         self,
         *,
@@ -428,36 +461,3 @@ class IntelligenceStore:
             )
         trends.sort(key=lambda item: (-item["recent_count"], item["text"]))
         return trends
-
-    def _supporting_sessions(
-        self,
-        *,
-        signal_type: str,
-        signal_key: str,
-        group_by: str,
-        dimension_value: str,
-        after: float | None = None,
-        through: float | None = None,
-    ) -> list[sqlite3.Row]:
-        conditions = [
-            "g.signal_type = ?",
-            "g.signal_key = ?",
-            f"COALESCE(s.{group_by}, 'not_recorded') = ?",
-        ]
-        parameters: list[object] = [signal_type, signal_key, dimension_value]
-        if after is not None:
-            conditions.append("s.artifact_created_at > ?")
-            parameters.append(after)
-        if through is not None:
-            conditions.append("s.artifact_created_at <= ?")
-            parameters.append(through)
-        return self.connection.execute(
-            f"""
-            SELECT s.session_id, s.artifact_id
-            FROM signals AS g
-            JOIN sessions AS s ON s.session_id = g.session_id
-            WHERE {" AND ".join(conditions)}
-            ORDER BY s.session_id
-            """,
-            parameters,
-        ).fetchall()

@@ -100,17 +100,17 @@ Transcript recorder     Interview state
           |                  |
           +--------+---------+
                    v
-          Session artifact (JSON first)
+           Session artifact (JSON first)
                    |
                    v
-          Post-interview synthesis
-          - issue and guest impact
-          - root-cause hypotheses
-          - frequency and severity
-          - workaround
-          - positive practice
-          - recommended action
-          - evidence and confidence
+           Post-interview synthesis
+           - issue and guest impact
+           - root-cause hypotheses
+           - frequency and severity
+           - workaround
+           - positive practice
+           - recommended action
+           - evidence and confidence
 ```
 
 JSON files are sufficient for the first locally reviewable vertical slice. A transactional database becomes necessary when multiple deployed workers must share durable state.

@@ -227,3 +227,7 @@ class IntelligenceStoreTests(unittest.TestCase):
         self.assertEqual(len(snapshot["recurring_issues"]), 1)
         recovered = self.store.load_artifact("session-0")
         self.assertEqual(recovered["session"]["id"], "session-0")
+
+
+if __name__ == "__main__":
+    unittest.main()

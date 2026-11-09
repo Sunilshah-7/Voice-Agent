@@ -209,3 +209,5 @@ async def entrypoint(ctx: JobContext) -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     agents.cli.run_app(server)
+
+    ctx.add_shutdown_callback(persist_session)

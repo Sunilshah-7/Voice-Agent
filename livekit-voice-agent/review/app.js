@@ -117,6 +117,7 @@ async function loadIntelligence() {
   $("signals-button").classList.add("active");
   renderSessionList();
   $("empty-state").hidden = true;
+  $("intelligence-content").hidden = true;
   $("review-content").hidden = true;
   $("intelligence-content").hidden = false;
   const groupBy = $("dimension-select").value;

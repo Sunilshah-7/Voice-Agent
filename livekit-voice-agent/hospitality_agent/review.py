@@ -31,7 +31,7 @@ class ReviewStore:
                 continue
             session = artifact["session"]
             plan = artifact["interview_plan"]
-            context = artifact.get("respondent_context", {})
+            context = artifact.get("respondent_context") or {}
             synthesis = artifact.get("synthesis", {"status": "not_run"})
             sessions.append(
                 {

@@ -95,6 +95,8 @@ class InterviewSynthesis(BaseModel):
 
 
 TextGenerator = Callable[[str], Awaitable[str]]
+
+
 _NUMBER_TOKENS = re.compile(
     r"\b(?:\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|dozen|hundred|thousand|once|twice)\b",
